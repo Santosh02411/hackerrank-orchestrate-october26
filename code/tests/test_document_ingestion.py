@@ -236,6 +236,16 @@ class TestUncertaintyLabelling(unittest.TestCase):
         self.assertEqual((item.value, item.uncertain), ("ingrid.dahl@outlook.com", True))
         self.assertEqual((counts["low_confidence"], counts["unstable"]), (0, 1))
 
+    def test_readings_just_below_the_old_cutoff_of_80_are_stable_across_ocr_builds(self):
+        """Regression: five `user_03` readings at 80.25 flipped to uncertain on another Tesseract build and dropped five audit records."""
+        for conf in (80.25, 79.9, 75.0, 70.0):
+            parsed, counts = self.run_rows(["user_03"], conf, {("user_id", "user_03")})
+            self.assertFalse(parsed.observations[0].identifiers.items[0].uncertain, conf)
+        parsed, counts = self.run_rows(["user_03"], 69.9, {("user_id", "user_03")})
+        self.assertTrue(parsed.observations[0].identifiers.items[0].uncertain)
+        parsed, counts = self.run_rows(["user_03"], 95.0, set())                 # a high-confidence reading the second pass did NOT reproduce is still uncertain
+        self.assertTrue(parsed.observations[0].identifiers.items[0].uncertain)
+
     def test_confident_and_reproduced_identifier_is_not_flagged(self):
         parsed, counts = self.run_rows(["backup_9287"], 93.0, {("resource_ref", "backup_9287")})
         self.assertFalse(parsed.observations[0].identifiers.items[0].uncertain)
@@ -243,7 +253,8 @@ class TestUncertaintyLabelling(unittest.TestCase):
         self.assertEqual(counts["uncertain"], 0)
 
     def test_threshold_boundary(self):
-        for conf, expected in ((79.99, True), (80.0, False)):
+        T = D.OCR_CONFIDENCE_THRESHOLD
+        for conf, expected in ((T - 0.01, True), (T, False)):
             parsed, _ = self.run_rows(["user_18"], conf, {("user_id", "user_18")})
             self.assertEqual(parsed.observations[0].identifiers.items[0].uncertain, expected, conf)
 

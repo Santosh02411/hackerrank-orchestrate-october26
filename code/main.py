@@ -27,6 +27,26 @@ from ghost_audit.validator import ValidatorConfig, validate_csv  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent
 
 
+def dependency_status() -> dict:
+    """Which optional readers are available? PDFs need pypdf; screenshots need Pillow and the Tesseract program."""
+    import importlib.util
+
+    from ghost_audit.evidence.ocr import find_tesseract, pillow_available
+
+    return {"pypdf": importlib.util.find_spec("pypdf") is not None, "Pillow": pillow_available(), "Tesseract": find_tesseract() is not None}
+
+
+def dependency_message(status: dict) -> str:
+    """One line when everything is available; otherwise what is missing, what that breaks and how to fix it."""
+    if all(status.values()):
+        return "dependencies: pypdf, Pillow and Tesseract found"
+    missing = [k for k, v in status.items() if not v]
+    return ("DEPENDENCIES MISSING: %s. The PDFs/screenshots they read are skipped, so some cases have nothing provable and are written as empty "
+            "INCOMPLETE rows that FAIL validation (they are never guessed). Fix: `pip install -r requirements.txt` and install Tesseract 5.x "
+            "(Windows: https://github.com/UB-Mannheim/tesseract/wiki then add it to PATH or set TESSERACT_CMD; Linux: apt install tesseract-ocr; "
+            "macOS: brew install tesseract)." % ", ".join(missing))
+
+
 def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
@@ -34,12 +54,14 @@ def main(argv=None) -> int:
     ap.add_argument("--dataset", default=str(REPO / "dataset"))
     ap.add_argument("--requests", help="request CSV (default: <dataset>/deletion_requests.csv)")
     ap.add_argument("--output", default=str(REPO / "output.csv"))
-    ap.add_argument("--case-order", choices=["lexical", "natural"], default="lexical", help="row order by case_id (the repository does not say; see README)")
+    ap.add_argument("--case-order", choices=["lexical", "natural"], default="natural", help="row order by case_id; natural = numeric, the order of dataset/deletion_requests.csv (default)")
     ap.add_argument("--resource-order", choices=["lexical", "natural"], default="lexical", help="order of system_id/resource_id inside a phase/operation")
     ap.add_argument("--cache", help="developer cache of the parsed evidence (written if missing); never changes results")
     ap.add_argument("--diagnostics", help="write one JSON line per case (identity, links, assessments, notes) for review")
     args = ap.parse_args(argv)
 
+    status = dependency_status()
+    print(dependency_message(status), file=sys.stdout if all(status.values()) else sys.stderr)
     dataset = Path(args.dataset)
     req_path = Path(args.requests) if args.requests else dataset / "deletion_requests.csv"
     try:

@@ -57,6 +57,38 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(m["cases"], 1)
 
 
+def _load_eval_main():
+    spec = importlib.util.spec_from_file_location("ghost_evaluation_main_unit", CODE_DIR / "evaluation" / "main.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestIntegrityAudit(unittest.TestCase):
+    """contested_resources() reports a record cited for two DIFFERENT people; it must never change a decision."""
+
+    @staticmethod
+    def decision(case_id, user, rid, methods):
+        from types import SimpleNamespace as NS
+        return NS(case_id=case_id, steps=[{"resource_id": rid}], resolution=NS(user_id=user), view=NS(resources={rid: NS(methods=set(methods))}))
+
+    def test_two_different_people_sharing_a_record_are_reported_with_how_each_was_linked(self):
+        ev = _load_eval_main()
+        found = ev.contested_resources([self.decision("case_1", "user_1", "analytics_9", ["claim_window"]),
+                                        self.decision("case_2", "user_2", "analytics_9", ["claim_window"]),
+                                        self.decision("case_3", "user_3", "analytics_8", ["claim_window"])])
+        self.assertEqual(list(found), ["analytics_9"])
+        self.assertEqual(found["analytics_9"], [("case_1", "user_1", "claim_window"), ("case_2", "user_2", "claim_window")])
+
+    def test_the_same_person_audited_twice_is_not_a_conflict_and_unresolved_cases_are_ignored(self):
+        from types import SimpleNamespace as NS
+        ev = _load_eval_main()
+        again = [self.decision("case_1", "user_1", "export_5", ["identifier"]), self.decision("case_9", "user_1", "export_5", ["identifier"])]
+        self.assertEqual(ev.contested_resources(again), {})
+        unresolved = NS(case_id="case_7", steps=[{"resource_id": "export_5"}], resolution=None, view=None)
+        self.assertEqual(ev.contested_resources(again + [unresolved]), {})
+
+
 class TestCustomCases(unittest.TestCase):
     def test_at_least_three_distinct_cases_covering_every_status(self):
         cs = custom_cases.cases()
@@ -77,7 +109,8 @@ class TestReports(unittest.TestCase):
         spec.loader.exec_module(ev)
         r = ev.build(DATASET, None, corpus=Corpus.load_shared(DATASET))
         text = ev.evaluation_report(r)
-        for needle in ("development set", "no accuracy is claimed", "Sequence accuracy", "Additional evaluation cases", "Failures found and improvements made", "32/32"):
+        for needle in ("development set", "no accuracy is claimed", "Sequence accuracy", "Additional evaluation cases", "Failures found and improvements made", "32/32",
+                       "integrity audit", "Weak links can be shared"):
             self.assertIn(needle, text)
         self.assertEqual(r["n_main"], 518)
         self.assertTrue(r["validator"].ok)

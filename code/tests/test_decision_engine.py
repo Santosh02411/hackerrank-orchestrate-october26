@@ -14,6 +14,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -615,6 +616,17 @@ class TestPlanner(unittest.TestCase):
                 rep = validate_csv(p, ValidatorConfig(case_id_order=strat, resource_order=SortStrategy.LEXICAL, expected_case_ids={"case_2", "case_10", "case_3"}, expected_row_count=3))
                 self.assertTrue(rep.ok, rep.summary())
 
+    def test_default_row_order_is_numeric_like_the_input_file_not_string_order(self):
+        """Regression: the default used to be string order, which put case_100 before case_33 (the input file is numeric)."""
+        engine = make_engine([])
+        decisions = [engine.decide(case(cid=c, text="Please send me a copy of my data. Do not delete anything.")) for c in ("case_100", "case_33", "case_9", "case_550")]
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "o.csv"
+            write_output(decisions, p)                                              # default strategy
+            self.assertEqual([r["case_id"] for r in read_rows(p)], ["case_9", "case_33", "case_100", "case_550"])
+            self.assertTrue(validate_csv(p, ValidatorConfig(case_id_order=SortStrategy.NATURAL, expected_case_ids={d.case_id for d in decisions})).ok)
+            self.assertFalse(validate_csv(p, ValidatorConfig(case_id_order=SortStrategy.LEXICAL, expected_case_ids={d.case_id for d in decisions})).ok)
+
     def test_steps_json_is_compact_ascii_and_ordered(self):
         s = steps_json([{"step_no": 1, "phase": "FINDING", "system_id": "a", "resource_id": "b", "operation": "o", "state": "PRESENT", "evidence_id": "e"}])
         self.assertEqual(s, '[{"step_no":1,"phase":"FINDING","system_id":"a","resource_id":"b","operation":"o","state":"PRESENT","evidence_id":"e"}]')
@@ -748,10 +760,11 @@ class TestRealDataset(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "output.csv"
             self.assertEqual(write_output(self.dec.values(), p), 518)
-            rep = validate_csv(p, ValidatorConfig(case_id_order=SortStrategy.LEXICAL, resource_order=SortStrategy.LEXICAL, expected_case_ids=set(self.dec), expected_row_count=518))
+            rep = validate_csv(p, ValidatorConfig(case_id_order=SortStrategy.NATURAL, resource_order=SortStrategy.LEXICAL, expected_case_ids=set(self.dec), expected_row_count=518))
             self.assertTrue(rep.ok, rep.summary() + "\n" + "\n".join(str(i) for i in rep.errors[:5]))
             rows = read_rows(p)
-            self.assertEqual([r["case_id"] for r in rows], sorted(self.dec))
+            self.assertEqual([r["case_id"] for r in rows], [r["case_id"] for r in self.rows], "default row order must equal dataset/deletion_requests.csv")
+            self.assertEqual(rows[0]["case_id"] + "|" + rows[-1]["case_id"], "case_33|case_550")
             self.assertEqual(len({r["case_id"] for r in rows}), 518)
 
     def test_every_citation_is_a_real_file_inside_the_case_window(self):
@@ -803,6 +816,71 @@ class TestRealDataset(unittest.TestCase):
             if d.resolution and d.resolution.user_id == "user_16":
                 self.assertLess(self.req[cid]["audit_at"], "2026-08-22T00:00:00Z")
                 self.assertNotIn("search_4882", {s["resource_id"] for s in d.steps})
+
+    def test_every_step_follows_the_operation_table_of_problem_statement_md(self):
+        """Independent of contracts.py: the table is parsed from the challenge statement itself."""
+        text = (REPO_ROOT / "problem_statement.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+        table = [m.groups() for m in re.finditer(r"^\|\s*`(FINDING|REMEDIATION|VERIFICATION)`\s*\|\s*`(\w+)`\s*\|\s*`(\w+)`", text, re.M)]
+        self.assertEqual(len(table), 15)
+        index = {(p, o): i for i, (p, o, _s) in enumerate(table)}
+        state = {o: s for _p, o, s in table}
+        keys = ["step_no", "phase", "system_id", "resource_id", "operation", "state", "evidence_id"]
+        pairs = {"DELETE_RECORD": "VERIFY_RECORD_ABSENT", "REDACT_RECORD": "VERIFY_RECORD_REDACTED", "ANONYMIZE_RECORD": "VERIFY_RECORD_ANONYMIZED",
+                 "DISABLE_DATA_FLOW": "VERIFY_DATA_FLOW_DISABLED", "BLOCK_RESTORE": "VERIFY_RESTORE_BLOCKED"}
+        for cid, d in self.dec.items():
+            st = d.steps
+            self.assertEqual([s["step_no"] for s in st], list(range(1, len(st) + 1)), cid)
+            for s in st:
+                self.assertEqual((list(s), state[s["operation"]]), (keys, s["state"]), cid)
+            self.assertEqual(st, sorted(st, key=lambda s: (index[(s["phase"], s["operation"])], s["system_id"], s["resource_id"])), cid)
+            verified = {(s["operation"], s["system_id"], s["resource_id"]) for s in st if s["phase"] == "VERIFICATION"}
+            found = {(s["system_id"], s["resource_id"]) for s in st if s["phase"] == "FINDING"}
+            rem = [s["operation"] for s in st if s["phase"] == "REMEDIATION"]
+            for s in st:
+                if s["phase"] == "REMEDIATION":
+                    self.assertIn((pairs[s["operation"]], s["system_id"], s["resource_id"]), verified, cid)
+                    self.assertIn((s["system_id"], s["resource_id"]), found, cid)
+            stops = [i for i, o in enumerate(rem) if o in ("DISABLE_DATA_FLOW", "BLOCK_RESTORE")]
+            edits = [i for i, o in enumerate(rem) if o in ("DELETE_RECORD", "REDACT_RECORD", "ANONYMIZE_RECORD")]
+            if stops and edits:
+                self.assertLess(max(stops), min(edits), "%s: copiers and restore paths must be stopped before records are edited" % cid)
+
+    def test_policy_invariants_hold_against_raw_observation_fields(self):
+        """Independent re-derivation (does not call the assessors): active sync, open restore, exposed tombstone and retained records."""
+        from ghost_audit.evidence.model import flag_value
+        when = lambda o: o.effective_time().value or ""  # noqa: E731
+        checked = Counter()
+        for cid, d in self.dec.items():
+            if d.status == "NOT_APPLICABLE":
+                continue
+            steps = {(s["operation"], s["resource_id"]) for s in d.steps}
+            for rid, lr in d.view.resources.items():
+                if lr.conflict:
+                    continue
+                obs = lr.observations
+                if rid.startswith("data_flow_"):
+                    seen = sorted([o for o in obs if o.state_field == "enabled" and flag_value(o.state_value) is not None], key=when)
+                    if seen:
+                        checked["flow"] += 1
+                        self.assertEqual(bool(flag_value(seen[-1].state_value)), ("REPORT_ACTIVE_DATA_FLOW", rid) in steps, "%s %s" % (cid, rid))
+                if rid.startswith("backup_"):
+                    seen = sorted([o for o in obs if o.state_field == "restore_allowed" and flag_value(o.state_value) is not None], key=when)
+                    if seen:
+                        checked["restore"] += 1
+                        self.assertEqual(bool(flag_value(seen[-1].state_value)), ("REPORT_RESTORE_RISK", rid) in steps, "%s %s" % (cid, rid))
+                if rid.startswith("tombstone_"):
+                    rec = sorted([o for o in obs if o.collection == "deleted_customer_references" or o.record_type == "ACCOUNT_TOMBSTONE"], key=when)
+                    if rec:
+                        checked["tombstone"] += 1
+                        direct = any(i.kind in ("email", "email_hash", "phone", "name") and not i.path.startswith("trace") for i in rec[-1].identifiers.items)
+                        self.assertEqual(direct, ("REPORT_EXPOSED_PII", rid) in steps, "%s %s" % (cid, rid))
+                if rid.startswith(("audit_record_", "legal_hold_")) and [o for o in obs if o.kind.value == "record" or str(o.fields.get("rows", "")) not in ("", "0")]:
+                    checked["retained"] += 1
+                    self.assertIn(("VERIFY_RECORD_PRESENT", rid), steps, "%s: a retained record is present but not verified" % cid)
+        self.assertGreater(checked["flow"], 100)
+        self.assertGreater(checked["retained"], 200)
+        self.assertGreater(checked["restore"], 30)
+        self.assertGreater(checked["tombstone"], 0)
 
     def test_the_run_is_deterministic(self):
         eng = real_engine()
