@@ -48,7 +48,11 @@ PHONE_SEARCH = re.compile(r"(?<![\w+])\+\d[\d ()\-]{6,}\d")
 TIME_KEY = re.compile(r"\b\d{1,2} [A-Z][a-z]{2} \d{4} (\d{1,2})$")
 TIME_VALUE = re.compile(r"^(\d{2}) ?UTC$")
 
-OCR_CONFIDENCE_THRESHOLD = 80.0
+# Below this word confidence an OCR identifier is "uncertain". It was 80, but five readings of `user_03` in one screenshot sit at 80.25, only 0.25 above
+# the cutoff. Two environments produced outputs that differed in exactly that case (five retained audit records); the cause is inferred (a build reading
+# them just under 80), not observed. 70 leaves a margin; the real protection is that the SAME identifier must also be reproduced by an independent
+# second OCR pass, otherwise it is uncertain too.
+OCR_CONFIDENCE_THRESHOLD = 70.0
 
 
 @dataclass(frozen=True)

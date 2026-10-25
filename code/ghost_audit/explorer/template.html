@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghost Audit Evidence Explorer</title>
+<style>
+:root{--bg:#f4f6f9;--panel:#ffffff;--ink:#17202b;--muted:#4f5b6b;--line:#d5dce5;--soft:#eef2f7;--accent:#0b4f9c;--accent-ink:#ffffff;
+--elig:#005f99;--elig-bg:#e1f0fa;--after:#a63f00;--after-bg:#fdeadd;--before:#566273;--before-bg:#eceff3;--amb:#7a4f00;--amb-bg:#fff2cf;
+--miss:#86285f;--miss-bg:#f8e6f0;--ok:#00694f;--ok-bg:#dff3ec;--bad:#a8231b;--bad-bg:#fbe5e3;--shadow:0 1px 2px rgba(20,30,50,.08),0 4px 14px rgba(20,30,50,.06);
+--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#0f141b;--panel:#171e28;--ink:#e8edf3;--muted:#a6b2c1;--line:#2b3644;--soft:#1e2733;--accent:#6db0ff;--accent-ink:#071423;
+--elig:#6cc0f5;--elig-bg:#12324a;--after:#ff9d5c;--after-bg:#3c2412;--before:#aab5c3;--before-bg:#242d3a;--amb:#f2c35b;--amb-bg:#3a2e10;
+--miss:#f09ad0;--miss-bg:#3a1a30;--ok:#59d3ae;--ok-bg:#12372d;--bad:#ff8f87;--bad-bg:#431a18;--shadow:none}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans)}
+a{color:var(--accent)}button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--accent);color:var(--accent-ink);padding:8px 12px;border-radius:6px;z-index:50}.skip:focus{left:8px}
+header.top{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:var(--shadow)}
+.bar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:10px 18px;max-width:1500px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:.2px}
+.brand svg{flex:none}.brand small{display:block;font-weight:500;color:var(--muted);font-size:12px;letter-spacing:0}
+nav.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tab{border:0;background:transparent;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:600;color:var(--muted)}
+.tab[aria-selected=true]{background:var(--accent);color:var(--accent-ink)}.tab:hover:not([aria-selected=true]){background:var(--soft);color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-left:auto}
+.seg button{border:0;background:var(--panel);padding:7px 12px;cursor:pointer;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed=true]{background:var(--soft);color:var(--ink);box-shadow:inset 0 -3px 0 var(--accent)}
+.notice{max-width:1500px;margin:0 auto;padding:6px 18px 10px;color:var(--muted);font-size:13px}
+.notice strong{color:var(--ink)}
+main{max-width:1500px;margin:0 auto;padding:18px}
+h1,h2,h3,h4{line-height:1.25;margin:0 0 8px}h2{font-size:20px}h3{font-size:16px}h4{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px}
+.grid{display:grid;gap:14px}.cards{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;text-align:left;cursor:default}
+button.card{cursor:pointer}button.card:hover{border-color:var(--accent)}
+.card .n{font-size:26px;font-weight:700;line-height:1.1}.card .l{color:var(--muted);font-size:13px}
+.badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;border:1px solid transparent;white-space:nowrap}
+.b-COMPLETE,.b-ok,.b-compliant{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.b-INCOMPLETE,.b-violation,.b-bad{background:var(--bad-bg);color:var(--bad);border-color:var(--bad)}
+.b-NOT_APPLICABLE,.b-unknown,.b-neutral{background:var(--before-bg);color:var(--before);border-color:var(--before)}
+.b-eligible,.b-retained{background:var(--elig-bg);color:var(--elig);border-color:var(--elig)}
+.b-after_audit{background:var(--after-bg);color:var(--after);border-color:var(--after);border-style:dashed}
+.b-before_request{background:var(--before-bg);color:var(--before);border-color:var(--before)}
+.b-ambiguous,.b-weak{background:var(--amb-bg);color:var(--amb);border-color:var(--amb);border-style:dashed}
+.b-missing{background:var(--miss-bg);color:var(--miss);border-color:var(--miss)}
+.layout{scroll-margin-top:112px;display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:14px;align-items:start;margin-top:14px}
+@media (max-width:980px){.layout{grid-template-columns:1fr}.layout.has-case .listcol{display:none}.layout:not(.has-case) .detailcol{display:none}}
+.listcol{position:sticky;top:104px;max-height:calc(100vh - 120px);display:flex;flex-direction:column}
+@media (max-width:980px){.listcol{position:static;max-height:none}}
+.filters{display:grid;gap:8px;margin-bottom:10px}
+input[type=search],select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);font:inherit}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)}
+.chip[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.list{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);flex:1;min-height:120px}
+.item{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;padding:10px 12px;cursor:pointer}
+.item:hover{background:var(--soft)}.item[aria-current=true]{background:var(--elig-bg);box-shadow:inset 4px 0 0 var(--accent)}
+.item .r1{display:flex;justify-content:space-between;gap:8px;align-items:center;font-weight:700}.item .r2{color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 2px;color:var(--muted);font-size:13px}
+.btn{border:1px solid var(--line);background:var(--panel);padding:6px 11px;border-radius:8px;cursor:pointer;font-weight:600}.btn:disabled{opacity:.45;cursor:default}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.dtabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:12px 0}
+.dtab{border:0;background:transparent;padding:9px 13px;cursor:pointer;font-weight:600;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px}
+.dtab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent)}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+.scroll{overflow-x:auto}.mono{font-family:var(--mono);font-size:13px}.muted{color:var(--muted)}.small{font-size:13px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px}.kv dt{color:var(--muted)}.kv dd{margin:0;overflow-wrap:anywhere}
+.empty{border:1px dashed var(--line);border-radius:12px;padding:18px;color:var(--muted);text-align:center;background:var(--soft)}
+.callout{border-left:4px solid var(--accent);background:var(--soft);padding:10px 12px;border-radius:0 10px 10px 0;margin:10px 0}
+.callout.warn{border-color:var(--amb);background:var(--amb-bg)}.callout.bad{border-color:var(--bad);background:var(--bad-bg)}.callout.ok{border-color:var(--ok);background:var(--ok-bg)}
+.bars{display:grid;gap:6px}.brow{display:grid;grid-template-columns:minmax(120px,210px) 1fr 54px;gap:8px;align-items:center;font-size:13px}
+.brow .t{height:16px;background:var(--soft);border-radius:5px;overflow:hidden}.brow .f{height:100%;background:var(--elig);border-radius:5px}
+.brow .f.after{background:repeating-linear-gradient(45deg,var(--after) 0 5px,var(--after-bg) 5px 9px)}.brow .f.ok{background:var(--ok)}.brow .f.bad{background:var(--bad)}.brow .f.neutral{background:var(--before)}.brow .f.amb{background:repeating-linear-gradient(90deg,var(--amb) 0 6px,var(--amb-bg) 6px 10px)}
+.brow .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+.stack{display:flex;height:22px;border-radius:7px;overflow:hidden;border:1px solid var(--line)}.stack span{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);margin:8px 0}.legend span{display:inline-flex;align-items:center;gap:6px}
+.chain{display:grid;grid-template-columns:1fr;gap:26px}
+.node{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel);position:relative;min-width:0}.node h4{margin-bottom:6px}
+.node::after{content:"\2193";position:absolute;left:50%;bottom:-24px;transform:translateX(-50%);font-size:20px;line-height:22px;color:var(--muted);width:24px;text-align:center}
+.node:last-child::after{display:none}
+.node.wide{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 14px}.node.wide>h4{grid-column:1/-1}@media (max-width:1100px){.node.wide{grid-template-columns:1fr}}
+.obs{border:1px solid var(--line);border-radius:10px;padding:8px;margin:6px 0;background:var(--soft);font-size:13px;overflow-wrap:anywhere}.obs.cited{border-color:var(--ok);box-shadow:inset 3px 0 0 var(--ok)}
+.obs.after_audit{border-style:dashed;border-color:var(--after)}.obs.before_request{opacity:.85}
+.hit{background:var(--elig-bg);color:var(--elig);border-radius:4px;padding:0 4px;font-weight:700}
+.tl-wrap{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow-x:auto}
+svg text{font-family:var(--sans);font-size:11px;fill:var(--ink)}svg .lane{stroke:var(--line)}svg .axis{stroke:var(--muted)}
+.sym-elig{fill:var(--elig)}.sym-after{fill:var(--after);stroke:var(--after)}.sym-before{fill:none;stroke:var(--before);stroke-width:2}.sym-claim{fill:var(--before)}
+.sym-amb{fill:none;stroke:var(--amb);stroke-width:2;stroke-dasharray:3 2}.sym-miss{fill:none;stroke:var(--miss);stroke-width:2}
+.sec{margin:18px 0}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media (max-width:900px){.two{grid-template-columns:1fr}}
+.srow{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline}
+details{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0;background:var(--panel)}summary{cursor:pointer;font-weight:600}
+code{font-family:var(--mono);font-size:12.5px;background:var(--soft);padding:1px 5px;border-radius:5px}
+@media (max-width:700px){header.top{position:static}.brand small{display:none}.bar{padding:8px 12px}.notice{padding:4px 12px 8px;font-size:12px}main{padding:12px}.seg{margin-left:0}}
+@media (max-width:980px){.has-case-root .summary{display:none}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="bar">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" role="img" aria-label="Ghost Audit logo"><rect width="34" height="34" rx="9" fill="var(--accent)"/><path d="M9 25V14a8 8 0 0 1 16 0v11l-3-2.4-2.6 2.4-2.4-2.4-2.4 2.4-2.6-2.4z" fill="var(--accent-ink)"/><circle cx="14" cy="14" r="1.6" fill="var(--accent)"/><circle cx="20" cy="14" r="1.6" fill="var(--accent)"/></svg>
+      <div>Ghost Audit Evidence Explorer<small>Read-only view of the engine's own decisions and evidence</small></div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+    <div class="seg" role="group" aria-label="Dataset" id="dataset-seg"></div>
+  </div>
+  <div class="notice" id="notice" role="note"></div>
+</header>
+<main id="main" tabindex="-1"><div id="app"></div></main>
+<script id="ghost-data" type="application/json">/*__GHOST_EXPLORER_DATA__*/null</script>
+<script>
+(function () {
+"use strict";
+var DATA = null;
+try { DATA = JSON.parse(document.getElementById("ghost-data").textContent); } catch (e) { DATA = null; }
+var app = document.getElementById("app");
+
+/* ---------- tiny DOM helpers: data is ALWAYS inserted as text, never as HTML ---------- */
+function el(tag, attrs) {
+  var n = document.createElement(tag);
+  if (attrs) Object.keys(attrs).forEach(function (k) {
+    var v = attrs[k];
+    if (v === null || v === undefined || v === false) return;
+    if (k === "class") n.className = v;
+    else if (k === "text") n.textContent = String(v);
+    else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? "" : String(v));
+  });
+  for (var i = 2; i < arguments.length; i++) add(n, arguments[i]);
+  return n;
+}
+function add(n, c) {
+  if (c === null || c === undefined || c === false) return;
+  if (Array.isArray(c)) { c.forEach(function (x) { add(n, x); }); return; }
+  n.appendChild(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
+}
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); return n; }
+var SVGNS = "http://www.w3.org/2000/svg";
+function svg(tag, attrs) {
+  var n = document.createElementNS(SVGNS, tag);
+  if (attrs) Object.keys(attrs).forEach(function (k) { if (k === "text") n.textContent = String(attrs[k]); else n.setAttribute(k, String(attrs[k])); });
+  for (var i = 2; i < arguments.length; i++) add(n, arguments[i]);
+  return n;
+}
+function fmt(iso) { return iso ? iso.replace("T", " ").replace("Z", " UTC") : "unknown time"; }
+function num(x) { return Number(x).toLocaleString("en-US"); }
+function pct(x) { return (100 * x).toFixed(1) + "%"; }
+function cnum(id) { var m = /(\d+)$/.exec(id); return m ? parseInt(m[1], 10) : 0; }
+
+var STATUS_ICON = { COMPLETE: "\u2713", INCOMPLETE: "\u25CF", NOT_APPLICABLE: "\u25CB" };
+function statusBadge(s) { return el("span", { class: "badge b-" + s, text: (STATUS_ICON[s] || "") + " " + s.replace("_", " ") }); }
+var VERDICT = { violation: ["Violation: finding raised", "violation", "\u25B2"], compliant: ["Compliant: proof of final state", "compliant", "\u2713"], retained: ["Retained by policy", "retained", "\u25A0"], unknown: ["No usable evidence", "unknown", "?"] };
+function verdictBadge(v) { var m = VERDICT[v] || [v, "neutral", ""]; return el("span", { class: "badge b-" + m[1], text: m[2] + " " + m[0] }); }
+var ELIG = { eligible: ["Eligible", "\u25CF"], after_audit: ["After audit_at: excluded", "\u25C6"], before_request: ["Before request: excluded", "\u25A1"] };
+function eligBadge(e) { var m = ELIG[e] || [e, ""]; return el("span", { class: "badge b-" + e, text: m[1] + " " + m[0] }); }
+function methodBadge(m) { return el("span", { class: "badge " + (m === "claim_window" ? "b-weak" : "b-eligible"), text: m + (m === "claim_window" ? " (weak)" : "") }); }
+function emptyState(title, body) { return el("div", { class: "empty" }, el("strong", { text: title }), body ? el("div", { text: body }) : null); }
+
+/* ---------- state ---------- */
+var S = { tab: "cases", ds: "evaluation", q: "", statuses: {}, flags: {}, sort: "id", page: 0, caseId: null, dtab: "overview", resource: null, fit: true };
+var PAGE = 40;
+var FLAGS = [["weak_link", "Weak link"], ["ambiguous", "Ambiguous link"], ["after_cutoff", "Evidence after audit_at"], ["document_evidence", "PDF / screenshot evidence"], ["conflict", "Ownership conflict"]];
+
+function ds() { return DATA.datasets[S.ds]; }
+function caseById(id) { var c = ds().cases; for (var i = 0; i < c.length; i++) if (c[i].id === id) return c[i]; return null; }
+function haystack(c) {
+  if (c._h) return c._h;
+  var p = [c.id, c.request.email, c.identity && c.identity.user_id, c.identity && c.identity.name];
+  c.resources.forEach(function (r) { p.push(r.id, r.system_id); r.observations.forEach(function (o) { p.push(o.evidence_id); }); });
+  c.steps.forEach(function (s) { p.push(s.evidence_id, s.operation); });
+  c._h = p.filter(Boolean).join(" ").toLowerCase();
+  return c._h;
+}
+function filtered() {
+  var toks = S.q.toLowerCase().split(/\s+/).filter(Boolean);
+  var st = Object.keys(S.statuses).filter(function (k) { return S.statuses[k]; });
+  var fl = Object.keys(S.flags).filter(function (k) { return S.flags[k]; });
+  var out = ds().cases.filter(function (c) {
+    if (st.length && st.indexOf(c.status) < 0) return false;
+    for (var i = 0; i < fl.length; i++) if (c.flags.indexOf(fl[i]) < 0) return false;
+    var h = haystack(c);
+    for (var j = 0; j < toks.length; j++) if (h.indexOf(toks[j]) < 0) return false;
+    return true;
+  });
+  var cmp = { id: function (a, b) { return cnum(a.id) - cnum(b.id); },
+    steps: function (a, b) { return b.steps.length - a.steps.length || cnum(a.id) - cnum(b.id); },
+    excluded: function (a, b) { return ((b.counts.after_audit || 0) + (b.counts.before_request || 0)) - ((a.counts.after_audit || 0) + (a.counts.before_request || 0)) || cnum(a.id) - cnum(b.id); } };
+  return out.sort(cmp[S.sort] || cmp.id);
+}
+
+/* ---------- routing (hash) ---------- */
+function writeHash() {
+  var h = "#/" + S.tab;
+  if (S.tab === "cases" && S.caseId) h = "#/case/" + S.caseId + "/" + S.dtab + (S.resource ? "/" + S.resource : "");
+  if (location.hash !== h) history.replaceState(null, "", h);
+}
+function readHash() {
+  var p = location.hash.replace(/^#\/?/, "").split("/");
+  if (p[0] === "case" && p[1]) {
+    S.tab = "cases"; S.caseId = decodeURIComponent(p[1]); S.dtab = p[2] || "overview"; S.resource = p[3] ? decodeURIComponent(p[3]) : null;
+    if (!caseById(S.caseId) && DATA.datasets.samples.cases.some(function (c) { return c.id === S.caseId; })) S.ds = "samples";
+  } else if (["cases", "integrity", "evaluation", "method"].indexOf(p[0]) >= 0) { S.tab = p[0]; if (p[0] === "cases") S.caseId = null; }
+}
+function go(patch) {
+  var opening = patch.caseId && patch.caseId !== S.caseId;
+  Object.keys(patch).forEach(function (k) { S[k] = patch[k]; }); writeHash(); render();
+  if (opening) { var l = document.querySelector(".layout"); if (l) l.scrollIntoView({ block: "start" }); }
+}
+
+/* ---------- chrome ---------- */
+function renderChrome() {
+  var tabs = clear(document.getElementById("tabs"));
+  [["cases", "Cases"], ["integrity", "Integrity"], ["evaluation", "Evaluation"], ["method", "How it works"]].forEach(function (t) {
+    tabs.appendChild(el("button", { class: "tab", role: "tab", "aria-selected": S.tab === t[0] ? "true" : "false", text: t[1], onclick: function () { go({ tab: t[0] }); } }));
+  });
+  var seg = clear(document.getElementById("dataset-seg"));
+  [["evaluation", "Evaluation \u00B7 " + DATA.datasets.evaluation.cases.length], ["samples", "Samples \u00B7 " + DATA.datasets.samples.cases.length]].forEach(function (d) {
+    seg.appendChild(el("button", { "aria-pressed": S.ds === d[0] ? "true" : "false", text: d[1], title: DATA.datasets[d[0]].label,
+      onclick: function () { go({ ds: d[0], caseId: null, page: 0, resource: null }); } }));
+  });
+  var n = clear(document.getElementById("notice"));
+  n.appendChild(S.ds === "evaluation"
+    ? el("span", null, el("strong", { text: "518 evaluation cases: no ground truth exists. " }), "Everything here is what the engine decided and the recorded evidence behind it, not a measured accuracy.")
+    : el("span", null, el("strong", { text: "Public samples are a DEVELOPMENT set. " }), "The engine was built while studying them, so any agreement with their reference answers is an upper bound."));
+}
+
+/* ---------- charts ---------- */
+function bars(items, opts) {
+  opts = opts || {};
+  var max = Math.max.apply(null, items.map(function (i) { return i.value; }).concat([1]));
+  return el("div", { class: "bars", role: "list", "aria-label": opts.label || "chart" }, items.map(function (i) {
+    return el("div", { class: "brow", role: "listitem" }, el("div", { class: "t-label", text: i.label, title: i.title || i.label }),
+      el("div", { class: "t", "aria-hidden": "true" }, el("div", { class: "f " + (i.cls || ""), style: "width:" + (100 * i.value / max).toFixed(1) + "%" })),
+      el("div", { class: "v", text: num(i.value) }));
+  }));
+}
+function statusStack(summary) {
+  var tot = summary.cases || 1, parts = [["COMPLETE", "var(--ok)"], ["INCOMPLETE", "var(--bad)"], ["NOT_APPLICABLE", "var(--before)"]];
+  return el("div", null,
+    el("div", { class: "stack", role: "img", "aria-label": parts.map(function (p) { return p[0] + " " + (summary.statuses[p[0]] || 0); }).join(", ") },
+      parts.map(function (p) { return el("span", { style: "width:" + (100 * (summary.statuses[p[0]] || 0) / tot) + "%;background:" + p[1] }); })),
+    el("div", { class: "legend" }, parts.map(function (p) { return el("span", null, el("i", { style: "display:inline-block;width:12px;height:12px;border-radius:3px;background:" + p[1] }), p[0].replace("_", " ") + ": " + num(summary.statuses[p[0]] || 0)); })));
+}
+function metric(n, label, fn) {
+  var inner = [el("div", { class: "n", text: n }), el("div", { class: "l", text: label })];
+  return fn ? el("button", { class: "card", onclick: fn, title: "Filter the list" }, inner) : el("div", { class: "card" }, inner);
+}
+
+/* ---------- CASES ---------- */
+function renderCases() {
+  var s = ds().summary, root = el("div", { class: S.caseId ? "has-case-root" : "" });
+  root.appendChild(el("div", { class: "grid cards summary", role: "group", "aria-label": "Summary metrics" },
+    metric(num(s.cases), "cases", null),
+    metric(num(s.statuses.COMPLETE || 0), "COMPLETE", function () { setStatus("COMPLETE"); }),
+    metric(num(s.statuses.INCOMPLETE || 0), "INCOMPLETE", function () { setStatus("INCOMPLETE"); }),
+    metric(num(s.statuses.NOT_APPLICABLE || 0), "NOT APPLICABLE", function () { setStatus("NOT_APPLICABLE"); }),
+    metric(num(s.steps), "steps in answers", null),
+    metric(num(s.flags.after_cutoff || 0), "cases with evidence after audit_at (excluded)", function () { setFlag("after_cutoff"); }),
+    metric(num(s.flags.weak_link || 0), "cases using a weak link", function () { setFlag("weak_link"); }),
+    metric(num(s.flags.ambiguous || 0), "cases with an ambiguous link left unattributed", function () { setFlag("ambiguous"); })));
+  var layout = el("div", { class: "layout" + (S.caseId ? " has-case" : "") });
+  layout.appendChild(listColumn());
+  layout.appendChild(detailColumn());
+  root.appendChild(layout);
+  root.appendChild(el("h2", { text: "Dataset overview", style: "margin-top:26px" }));
+  root.appendChild(el("div", { class: "grid two" },
+    el("section", { class: "panel", "aria-labelledby": "h-status" }, el("h3", { id: "h-status", text: "Decisions by status" }), statusStack(s),
+      el("h3", { text: "Steps by operation", style: "margin-top:14px" }), bars(Object.keys(s.operations).map(function (k) { return { label: k, value: s.operations[k], cls: /^REPORT/.test(k) ? "bad" : /^VERIFY/.test(k) ? "ok" : "" }; }), { label: "Steps by operation" })),
+    el("section", { class: "panel", "aria-labelledby": "h-ev" }, el("h3", { id: "h-ev", text: "Evidence on linked records: used vs excluded" }),
+      bars([{ label: "Eligible (used)", value: s.evidence.eligible || 0 }, { label: "Excluded: after audit_at", value: s.evidence.after_audit || 0, cls: "after" },
+        { label: "Excluded: before request", value: s.evidence.before_request || 0, cls: "neutral" }, { label: "Workflow claims after audit_at", value: s.evidence.claims_after_audit || 0, cls: "after" }], { label: "Evidence eligibility" }),
+      el("h3", { text: "How cited records were linked to the person", style: "margin-top:14px" }),
+      bars(Object.keys(s.link_methods).map(function (k) { return { label: k, value: s.link_methods[k], cls: k.indexOf("claim_window") >= 0 ? "amb" : "" }; }), { label: "Link methods" }),
+      el("p", { class: "small muted", text: "Hatched bars mark excluded or weak (time-window) evidence." }))));
+  return root;
+}
+function setStatus(k) { S.statuses = {}; S.statuses[k] = true; S.page = 0; render(); }
+function setFlag(k) { S.flags = {}; S.flags[k] = true; S.page = 0; render(); }
+function listColumn() {
+  var rows = filtered(), pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  if (S.page >= pages) S.page = pages - 1;
+  var slice = rows.slice(S.page * PAGE, S.page * PAGE + PAGE);
+  var col = el("section", { class: "listcol", "aria-label": "Case list" });
+  var search = el("input", { type: "search", id: "case-search", placeholder: "Search case, e-mail, user, resource, evidence id\u2026", "aria-label": "Search cases", value: S.q,
+    oninput: function (e) { S.q = e.target.value; S.page = 0; refreshList(); } });
+  var statusChips = el("div", { class: "chips", role: "group", "aria-label": "Filter by status" }, ["COMPLETE", "INCOMPLETE", "NOT_APPLICABLE"].map(function (k) {
+    return el("button", { class: "chip", "aria-pressed": S.statuses[k] ? "true" : "false", text: k.replace("_", " "), onclick: function () { S.statuses[k] = !S.statuses[k]; S.page = 0; render(); } });
+  }));
+  var flagChips = el("div", { class: "chips", role: "group", "aria-label": "Filter by evidence flag" }, FLAGS.map(function (f) {
+    return el("button", { class: "chip", "aria-pressed": S.flags[f[0]] ? "true" : "false", text: f[1], onclick: function () { S.flags[f[0]] = !S.flags[f[0]]; S.page = 0; render(); } });
+  }));
+  var sort = el("select", { "aria-label": "Sort cases", onchange: function (e) { S.sort = e.target.value; S.page = 0; render(); } },
+    [["id", "Sort: case number"], ["steps", "Sort: most steps"], ["excluded", "Sort: most excluded evidence"]].map(function (o) { return el("option", { value: o[0], selected: S.sort === o[0], text: o[1] }); }));
+  col.appendChild(el("div", { class: "filters" }, search, statusChips, flagChips, sort,
+    el("div", { class: "small muted", id: "result-count", "aria-live": "polite", text: num(rows.length) + " of " + num(ds().cases.length) + " cases" })));
+  col.appendChild(el("div", { class: "list", id: "case-list" }, listItems(slice)));
+  col.appendChild(el("div", { class: "pager", id: "pager" }, pagerContent(rows.length, pages)));
+  return col;
+}
+function pagerContent(total, pages) {
+  return [el("button", { class: "btn", disabled: S.page === 0, text: "\u2039 Prev", onclick: function () { S.page--; render(); } }),
+    el("span", { text: total ? "Page " + (S.page + 1) + " of " + pages : "" }),
+    el("button", { class: "btn", disabled: S.page >= pages - 1, text: "Next \u203A", onclick: function () { S.page++; render(); } })];
+}
+function listItems(slice) {
+  if (!slice.length) return emptyState("No cases match", "Clear the search box or remove a filter.");
+  return slice.map(function (c) {
+    var fl = c.flags.map(function (f) { return { weak_link: "weak", ambiguous: "ambiguous", after_cutoff: "after-cutoff", document_evidence: "doc", conflict: "conflict" }[f]; }).filter(Boolean).join(" \u00B7 ");
+    return el("button", { class: "item", "aria-current": S.caseId === c.id ? "true" : "false", onclick: function () { go({ caseId: c.id, dtab: "overview", resource: null }); } },
+      el("div", { class: "r1" }, el("span", { text: c.id }), statusBadge(c.status)),
+      el("div", { class: "r2", text: (c.identity && c.identity.user_id ? c.identity.user_id + " \u00B7 " : "") + c.request.email }),
+      el("div", { class: "r2", text: c.steps.length + " steps" + (fl ? " \u00B7 " + fl : "") }));
+  });
+}
+function refreshList() {  /* typing must not rebuild the search box (it would lose focus) */
+  var rows = filtered(), pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  var list = clear(document.getElementById("case-list"));
+  add(list, listItems(rows.slice(0, PAGE)));
+  document.getElementById("result-count").textContent = num(rows.length) + " of " + num(ds().cases.length) + " cases";
+  var pager = clear(document.getElementById("pager")); add(pager, pagerContent(rows.length, pages));
+}
+
+function detailColumn() {
+  var col = el("section", { class: "detailcol", "aria-label": "Case detail" });
+  var c = S.caseId && caseById(S.caseId);
+  if (!c) { col.appendChild(el("div", { class: "panel" }, emptyState("Select a case", "Pick a case on the left, or start with one of the featured investigations below."), featured())); return col; }
+  var panel = el("div", { class: "panel" });
+  panel.appendChild(el("div", { class: "srow" },
+    el("div", null, el("button", { class: "btn", style: "margin-bottom:8px", text: "\u2039 All cases", onclick: function () { go({ caseId: null }); } }),
+      el("h2", { text: c.id + "  " }), statusBadge(c.status)),
+    el("div", { class: "small" }, el("div", { class: "muted", text: "Audit cutoff (audit_at)" }), el("strong", { text: fmt(c.request.audit_at) }))));
+  var tabs = [["overview", "Overview"], ["steps", "Steps (" + c.steps.length + ")"], ["lineage", "Evidence lineage"], ["timeline", "Timeline"], ["integrity", "Integrity"]];
+  if (c.reference) tabs.push(["reference", "Reference check"]);
+  panel.appendChild(el("div", { class: "dtabs", role: "tablist", "aria-label": "Case sections" }, tabs.map(function (t, i) {
+    return el("button", { class: "dtab", role: "tab", "aria-selected": S.dtab === t[0] ? "true" : "false", text: t[1], onclick: function () { go({ dtab: t[0] }); },
+      onkeydown: function (e) { if (e.key === "ArrowRight" && tabs[i + 1]) go({ dtab: tabs[i + 1][0] }); if (e.key === "ArrowLeft" && tabs[i - 1]) go({ dtab: tabs[i - 1][0] }); } });
+  })));
+  var views = { overview: viewOverview, steps: viewSteps, lineage: viewLineage, timeline: viewTimeline, integrity: viewIntegrity, reference: viewReference };
+  panel.appendChild((views[S.dtab] || viewOverview)(c));
+  col.appendChild(panel);
+  return col;
+}
+function featured() {
+  var f = DATA.featured || [];
+  if (!f.length || S.ds !== "evaluation") return null;
+  return el("div", { class: "sec" }, el("h3", { text: "Featured investigations" }), el("p", { class: "small muted", text: "Chosen by a generic score of how many distinct recorded behaviours a case shows, not by hand." }),
+    f.map(function (x) { return el("div", { class: "callout" }, el("button", { class: "btn primary", text: "Open " + x.case_id, onclick: function () { go({ caseId: x.case_id, dtab: "lineage", resource: null }); } }), " ", el("span", { class: "small", text: x.reasons.join("; ") })); }));
+}
+
+/* --- overview --- */
+function viewOverview(c) {
+  var r = c.request, id = c.identity, box = el("div");
+  box.appendChild(el("div", { class: "callout" }, el("div", { class: "small muted", text: "Request text" }), el("div", { text: r.text })));
+  if (c.status === "NOT_APPLICABLE") box.appendChild(el("div", { class: "callout warn" }, el("strong", { text: "Not applicable: " }), ((c.applicability && c.applicability.reason) || "the request does not authorize deletion") + ". The contract requires an empty step list."));
+  box.appendChild(el("div", { class: "two" },
+    el("div", null, el("h3", { text: "Timeline of the request" }), el("dl", { class: "kv" },
+      el("dt", { text: "Requested" }), el("dd", { text: fmt(r.requested_at) }), el("dt", { text: "Workflow reported" }), el("dd", null, fmt(r.reported_at), " ", el("span", { class: "badge b-neutral", text: "claim: " + r.reported_status })),
+      el("dt", { text: "Audit cutoff" }), el("dd", null, el("strong", { text: fmt(r.audit_at) }), el("div", { class: "small muted", text: "Evidence captured after this moment is never used." })))),
+    el("div", null, el("h3", { text: "Identity resolution" }), id ? el("dl", { class: "kv" },
+      el("dt", { text: "Request e-mail" }), el("dd", { class: "mono", text: r.email }), el("dt", { text: "Resolved to" }), el("dd", null, el("strong", { text: id.user_id || "unresolved" }), " ", id.status !== "resolved" ? el("span", { class: "badge b-violation", text: id.status }) : el("span", { class: "badge b-compliant", text: "via " + id.via + " e-mail" })),
+      el("dt", { text: "Held e-mails" }), el("dd", { class: "mono", text: id.emails.join(", ") || "none" }), el("dt", { text: "Also known" }), el("dd", { text: id.phones + " phone(s), " + id.hashes + " e-mail hash(es)" + (id.name ? ", name on file" : "") })) : emptyState("Identity not resolved for this request", "Not applicable requests are not resolved."))));
+  var cnt = c.counts;
+  box.appendChild(el("div", { class: "sec" }, el("h3", { text: "Evidence on this case's linked records" }), el("div", { class: "grid cards" },
+    metric(num(cnt.eligible || 0), "eligible observations (used)", null), metric(num(cnt.after_audit || 0), "excluded: after audit_at", null),
+    metric(num(cnt.before_request || 0), "excluded: before request", null), metric(num(c.resources.length), "linked records", null))));
+  if (c.notes.length) box.appendChild(el("div", { class: "sec" }, el("h3", { text: "Engine notes (recorded verbatim)" }), el("ul", null, c.notes.map(function (n) { return el("li", { class: "small", text: n }); }))));
+  return box;
+}
+
+/* --- steps --- */
+function viewSteps(c) {
+  if (!c.steps.length) return emptyState("No steps", c.status === "NOT_APPLICABLE" ? "NOT_APPLICABLE answers are an empty list by contract." : "The engine produced no steps for this case.");
+  var box = el("div");
+  box.appendChild(el("p", { class: "small muted", text: c.status === "INCOMPLETE" ? "Findings cite the evidence that proves them. Remediation and verification are future actions, so their evidence id is empty by contract. Order: phase, then operation order, then system and resource." : "COMPLETE answers contain only verification steps; each cites the evidence that proves the final state." }));
+  ["FINDING", "REMEDIATION", "VERIFICATION"].forEach(function (ph) {
+    var rows = c.steps.filter(function (s) { return s.phase === ph; });
+    if (!rows.length) return;
+    box.appendChild(el("h3", { text: ph[0] + ph.slice(1).toLowerCase() + " (" + rows.length + ")", style: "margin-top:14px" }));
+    box.appendChild(el("div", { class: "scroll" }, el("table", null, el("thead", null, el("tr", null, ["#", "Operation", "State", "System", "Resource", "Evidence"].map(function (h) { return el("th", { scope: "col", text: h }); }))),
+      el("tbody", null, rows.map(function (s) {
+        return el("tr", null, el("td", { text: s.step_no }), el("td", { class: "mono", text: s.operation }), el("td", { text: s.state }), el("td", { class: "mono", text: s.system_id }),
+          el("td", null, el("button", { class: "btn", text: s.resource_id, onclick: function () { go({ dtab: "lineage", resource: s.resource_id }); }, title: "Open evidence lineage" })),
+          el("td", { class: "mono" }, s.evidence_id ? el("span", { text: s.evidence_id }) : el("span", { class: "muted", text: "(empty: future step)" })));
+      })))));
+  });
+  return box;
+}
+
+/* --- lineage --- */
+function pickResource(c) {
+  var withSteps = c.resources.filter(function (r) { return r.steps.length; });
+  return c.resources.filter(function (r) { return r.id === S.resource; })[0] || withSteps[0] || c.resources[0] || null;
+}
+function viewLineage(c) {
+  if (!c.resources.length) return emptyState("No linked records", "Nothing in the eligible evidence was linked to this person" + (c.status === "NOT_APPLICABLE" ? " (not applicable request)." : "."));
+  var cur = pickResource(c), box = el("div");
+  box.appendChild(el("p", { class: "small muted", text: "Identity \u2192 link method \u2192 record \u2192 observation \u2192 decision. Every box shows recorded fields only; link explanations are the engine's own definitions plus the items it recorded." }));
+  box.appendChild(el("div", { class: "chips", role: "group", "aria-label": "Linked records" }, c.resources.map(function (r) {
+    return el("button", { class: "chip", "aria-pressed": cur && r.id === cur.id ? "true" : "false", onclick: function () { go({ resource: r.id }); },
+      text: r.id + " \u00B7 " + (VERDICT[r.verdict] ? VERDICT[r.verdict][2] : "") + (r.steps.length ? " \u00B7 step " + r.steps.join(",") : "") });
+  })));
+  box.appendChild(chain(c, cur));
+  return box;
+}
+function chain(c, r) {
+  var id = c.identity, wrap = el("div", { class: "chain", style: "margin-top:16px" });
+  wrap.appendChild(el("div", { class: "node" }, el("h4", { text: "1. Identity" }), el("div", { class: "mono", text: id.user_id }), el("div", { class: "small muted", text: "from request e-mail " + c.request.email + " (" + id.via + ")" }),
+    el("div", { class: "small", text: "Knows " + id.emails.length + " e-mail(s) at audit_at" })));
+  var links = el("div", { class: "node" }, el("h4", { text: "2. Link method" }));
+  r.link_evidence.forEach(function (le) {
+    links.appendChild(el("div", { style: "margin-bottom:8px" }, methodBadge(le.method), el("div", { class: "small", text: le.definition }),
+      le.items.length ? el("ul", { class: "small", style: "margin:4px 0;padding-left:18px" }, le.items.slice(0, 6).map(function (it) { return el("li", { class: "mono", text: linkItemText(r, it) }); })) : null,
+      le.items.length > 6 ? el("div", { class: "small muted", text: "\u2026 and " + (le.items.length - 6) + " more recorded" }) : null));
+  });
+  wrap.appendChild(links);
+  wrap.appendChild(el("div", { class: "node" }, el("h4", { text: "3. Record" }), el("div", { class: "mono", text: r.id }),
+    el("dl", { class: "kv small" }, el("dt", { text: "System" }), el("dd", { text: r.system_id || "n/a" }), el("dt", { text: "Category" }), el("dd", { text: r.category || "n/a" }), el("dt", { text: "Rule" }), el("dd", { text: r.rule_id || "n/a" })),
+    r.conflict ? el("div", { class: "callout bad small", text: "Conflict: " + r.conflict }) : null, r.aliases.length ? el("div", { class: "small", text: "Catalog alias: " + r.aliases.join(", ") }) : null));
+  var obsNode = el("div", { class: "node wide" }, el("h4", { text: "4. Observations" }));
+  var used = r.observations.filter(function (o) { return o.eligibility === "eligible"; }), unused = r.observations.filter(function (o) { return o.eligibility !== "eligible"; });
+  if (!used.length && !r.absence_proof) obsNode.appendChild(emptyState("No eligible observation", r.document_presence.length ? "A document prints the catalog alias: " + r.document_presence.join(", ") : r.observations.length ? "All recorded evidence is excluded (below)." : "The files contain nothing about this record."));
+  if (r.absence_proof) {
+    var pf = DATA.files[r.absence_proof] || {};
+    obsNode.appendChild(el("div", { class: "obs cited" }, el("div", null, el("strong", { class: "mono", text: r.absence_proof }), " ", el("span", { class: "badge b-ok", text: "\u2713 cited as proof of ABSENCE" })),
+      el("div", { class: "small muted", text: (pf.path || "") + (pf.origin ? " \u00B7 " + pf.origin : "") }),
+      el("div", { class: "small", text: "A full account snapshot captured " + fmt(pf.captured_at) + " inside the case window in which this record does not appear. The record is named only by a workflow claim, so this snapshot is the evidence, not an observation of the record itself." })));
+  }
+  used.forEach(function (o) { obsNode.appendChild(obsCard(o, r)); });
+  if (unused.length) obsNode.appendChild(el("details", null, el("summary", { text: unused.length + " observation(s) NOT used" }), unused.map(function (o) { return obsCard(o, r); })));
+  if (r.claims.length) obsNode.appendChild(el("details", null, el("summary", { text: r.claims.length + " workflow claim(s): claims, not state" }), r.claims.map(function (cl) {
+    return el("div", { class: "obs" + (cl.eligible ? "" : " after_audit") }, el("div", { class: "mono", text: cl.activity_id + " \u00B7 " + cl.event_type + " \u00B7 " + (cl.result || "") }), el("div", { class: "small", text: fmt(cl.time) + (cl.eligible ? "" : " (after audit_at, ignored)") }), el("div", { class: "small muted", text: cl.details })); })));
+  wrap.appendChild(obsNode);
+  var steps = c.steps.filter(function (s) { return s.resource_id === r.id; });
+  wrap.appendChild(el("div", { class: "node" }, el("h4", { text: "5. Decision" }), verdictBadge(r.verdict), el("p", { class: "small", text: r.reason }),
+    r.cited_evidence ? el("div", { class: "small" }, "Cited evidence: ", el("span", { class: "mono", text: r.cited_evidence })) : el("div", { class: "small muted", text: "No evidence cited for this record." }),
+    steps.length ? el("ul", { class: "small", style: "padding-left:18px" }, steps.map(function (s) { return el("li", null, "step " + s.step_no + " \u00B7 ", el("span", { class: "mono", text: s.operation })); })) : el("div", { class: "small muted", text: "No step is emitted for this record." })));
+  return wrap;
+}
+function linkItemText(r, it) {
+  if (it.activity_id) { var cl = r.claims.filter(function (c) { return c.activity_id === it.activity_id; })[0]; return it.activity_id + (cl ? " \u00B7 " + cl.event_type + " \u00B7 " + fmt(cl.time) : ""); }
+  var o = r.observations.filter(function (x) { return x.obs_id === it.obs_id; })[0];
+  if (it.kind && o) { var ident = o.identifiers.filter(function (i) { return i.kind === it.kind && i.path === it.path; })[0]; return o.evidence_id + " \u00B7 " + it.kind + " " + (ident ? ident.value : "") + " @ " + it.path; }
+  return o ? o.evidence_id + " \u00B7 " + o.locator : it.obs_id;
+}
+function obsCard(o, r) {
+  var cited = r.cited_evidence && o.evidence_id === r.cited_evidence && r.proof_obs === o.obs_id;
+  var f = DATA.files[o.evidence_id] || {};
+  return el("div", { class: "obs " + o.eligibility + (cited ? " cited" : "") },
+    el("div", null, el("strong", { class: "mono", text: o.evidence_id }), " ", eligBadge(o.eligibility), cited ? el("span", { class: "badge b-ok", text: " \u2713 cited as proof" }) : null),
+    el("div", { class: "small muted", text: (f.path || "") + (f.origin ? " \u00B7 " + f.origin : "") }),
+    el("div", { class: "small", text: o.format + " \u00B7 " + o.locator + (o.collection ? " \u00B7 " + o.collection : "") + (o.store_role ? " \u00B7 " + o.store_role + " store" : "") }),
+    el("div", { class: "small", text: "time " + fmt(o.time) + " (" + o.time_source + "); file captured " + fmt(o.captured_at) }),
+    o.state_field ? el("div", { class: "small" }, "recorded state: ", el("code", { text: o.state_field + " = " + String(o.state_value) })) : null,
+    o.text ? el("div", { class: "small", text: "row text: " + o.text }) : null,
+    o.identifiers.length ? el("div", { class: "small" }, o.identifiers.map(function (i) {
+      return el("span", { style: "margin-right:8px" }, i.kind + " ", el("span", { class: i.matches_person ? "hit mono" : "mono", text: i.value, title: i.matches_person ? "matches this person's identifiers" : "does not match" }),
+        i.uncertain ? el("span", { class: "badge b-ambiguous", text: "OCR uncertain" + (i.confidence !== null ? " " + i.confidence : "") }) : (i.confidence !== null ? el("span", { class: "muted", text: " conf " + i.confidence }) : null)); })) : el("div", { class: "small muted", text: "records no identifier" }));
+}
+
+/* --- timeline --- */
+function timelineEvents(c) {
+  var ev = [], r = c.request;
+  c.resources.forEach(function (res) {
+    res.observations.forEach(function (o) {
+      var late = o.eligibility === "after_audit" && o.captured_at && o.captured_at > r.audit_at;   /* what excludes it is the FILE's capture time */
+      ev.push({ t: late ? o.captured_at : (o.time || o.captured_at), kind: o.eligibility, lane: res.id, id: o.evidence_id,
+        text: o.format + " " + (o.collection || o.locator) + (late && o.time && o.time !== o.captured_at ? " (file captured " + fmt(o.captured_at) + "; record time " + fmt(o.time) + ")" : "") });
+    });
+    res.claims.forEach(function (cl) { ev.push({ t: cl.time, kind: cl.eligible ? "claim" : "claim_after", lane: res.id, id: cl.activity_id, text: cl.event_type + " " + (cl.result || "") }); });
+    if (!res.observations.some(function (o) { return o.eligibility === "eligible"; })) ev.push({ t: r.audit_at, kind: "missing", lane: res.id, id: "", text: "no eligible evidence for this record at audit_at" });
+  });
+  c.ambiguous.forEach(function (a) { ev.push({ t: r.reported_at, kind: "ambiguous", lane: a.prefix, id: "", text: a.candidates + " candidate records matched the time window; none attributed" }); });
+  return ev.filter(function (e) { return e.t; }).sort(function (a, b) { return a.t < b.t ? -1 : a.t > b.t ? 1 : 0; });
+}
+var KINDS = { eligible: ["Eligible evidence", "circle"], after_audit: ["Captured after audit_at (excluded)", "diamond"], before_request: ["Before request (excluded)", "square"], claim: ["Workflow claim (not state)", "tri"],
+  claim_after: ["Claim after audit_at (ignored)", "diamond"], ambiguous: ["Ambiguous link (unattributed)", "ring"], missing: ["Missing evidence", "cross"] };
+function symbol(kind, x, y) {
+  var cls = { eligible: "sym-elig", after_audit: "sym-after", before_request: "sym-before", claim: "sym-claim", claim_after: "sym-after", ambiguous: "sym-amb", missing: "sym-miss" }[kind], shape = KINDS[kind][1];
+  if (shape === "circle") return svg("circle", { cx: x, cy: y, r: 6, class: cls });
+  if (shape === "ring") return svg("circle", { cx: x, cy: y, r: 7, class: cls });
+  if (shape === "square") return svg("rect", { x: x - 6, y: y - 6, width: 12, height: 12, class: cls });
+  if (shape === "diamond") return svg("path", { d: "M" + x + " " + (y - 8) + " L" + (x + 8) + " " + y + " L" + x + " " + (y + 8) + " L" + (x - 8) + " " + y + " Z", class: cls, "fill-opacity": "0.55" });
+  if (shape === "tri") return svg("path", { d: "M" + x + " " + (y - 7) + " L" + (x + 7) + " " + (y + 6) + " L" + (x - 7) + " " + (y + 6) + " Z", class: cls });
+  return svg("path", { d: "M" + (x - 6) + " " + (y - 6) + " L" + (x + 6) + " " + (y + 6) + " M" + (x + 6) + " " + (y - 6) + " L" + (x - 6) + " " + (y + 6), class: cls });
+}
+function viewTimeline(c) {
+  var ev = timelineEvents(c), r = c.request, box = el("div");
+  if (!ev.length) return emptyState("No dated evidence", "Nothing is linked to this case, so there is nothing to place on a timeline.");
+  box.appendChild(el("div", { class: "srow" }, el("p", { class: "small muted", style: "max-width:70ch", text: "Evidence is placed at its recorded time (record time, else snapshot, else file capture). The dashed line is audit_at: anything to its right was captured too late to be used." }),
+    el("label", { class: "small" }, el("input", { type: "checkbox", checked: S.fit, onchange: function (e) { S.fit = e.target.checked; render(); } }), " Fit to request \u2192 audit window")));
+  box.appendChild(el("div", { class: "legend", "aria-label": "Legend" }, Object.keys(KINDS).map(function (k) {
+    return el("span", null, svg("svg", { width: 18, height: 18, viewBox: "0 0 18 18", "aria-hidden": "true" }, symbol(k, 9, 9)), KINDS[k][0]); })));
+  var lanes = []; ev.forEach(function (e) { if (lanes.indexOf(e.lane) < 0) lanes.push(e.lane); });
+  var times = ev.map(function (e) { return Date.parse(e.t); }).concat([Date.parse(r.requested_at), Date.parse(r.reported_at), Date.parse(r.audit_at)]);
+  var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);
+  if (S.fit) { lo = Date.parse(r.requested_at); hi = Date.parse(r.audit_at); }
+  var pad = (hi - lo) * 0.06 || 3600000; lo -= pad; hi += pad;
+  var W = 1000, L = 150, RR = 20, H = 52 + lanes.length * 34;
+  var x = function (t) { return L + (Math.min(Math.max(Date.parse(t), lo), hi) - lo) / (hi - lo) * (W - L - RR); };
+  var s = svg("svg", { viewBox: "0 0 " + W + " " + H, width: "100%", role: "img", "aria-label": "Evidence timeline for " + c.id + ". A table with the same events follows." });
+  s.appendChild(svg("rect", { x: x(r.audit_at), y: 30, width: Math.max(0, W - RR - x(r.audit_at)), height: H - 36, fill: "var(--after-bg)", "fill-opacity": "0.45" }));
+  [["requested", r.requested_at], ["reported", r.reported_at], ["audit_at", r.audit_at]].forEach(function (m, i) {
+    var mx = x(m[1]); s.appendChild(svg("line", { x1: mx, x2: mx, y1: 30, y2: H - 6, class: "axis", "stroke-dasharray": m[0] === "audit_at" ? "6 4" : "2 3", "stroke-width": m[0] === "audit_at" ? 2.5 : 1 }));
+    s.appendChild(svg("text", { x: mx, y: 14 + (i % 2) * 12, "text-anchor": "middle", text: m[0] === "audit_at" ? "audit_at (cutoff)" : m[0] }));
+  });
+  lanes.forEach(function (ln, i) {
+    var y = 52 + i * 34; s.appendChild(svg("line", { x1: L, x2: W - RR, y1: y, y2: y, class: "lane" })); s.appendChild(svg("text", { x: 6, y: y + 4, text: ln.length > 20 ? ln.slice(0, 19) + "\u2026" : ln }));
+    var prevx = -99, flip = 0;
+    ev.filter(function (e) { return e.lane === ln; }).forEach(function (e) {
+      var px = x(e.t); flip = Math.abs(px - prevx) < 16 ? flip + 1 : 0; prevx = px;     /* nudge markers that would sit on top of each other */
+      var py = y + (flip % 3 === 1 ? -9 : flip % 3 === 2 ? 9 : 0);
+      s.appendChild(svg("g", null, svg("title", { text: KINDS[e.kind][0] + (e.id ? " \u00B7 " + e.id : "") + " \u00B7 " + fmt(e.t) }), symbol(e.kind, px, py)));
+    });
+  });
+  box.appendChild(el("div", { class: "tl-wrap" }, s));
+  box.appendChild(el("h3", { text: "Chronological events", style: "margin-top:14px" }));
+  box.appendChild(el("div", { class: "scroll" }, el("table", null, el("thead", null, el("tr", null, ["Time", "State", "Record", "Evidence / activity", "Detail"].map(function (h) { return el("th", { scope: "col", text: h }); }))),
+    el("tbody", null, ev.map(function (e) {
+      return el("tr", null, el("td", { class: "mono", text: fmt(e.t) }), el("td", null, el("span", { class: "badge b-" + (e.kind === "claim" ? "neutral" : e.kind === "claim_after" ? "after_audit" : e.kind), text: KINDS[e.kind][0] })),
+        el("td", { class: "mono", text: e.lane }), el("td", { class: "mono", text: e.id || "-" }), el("td", { class: "small", text: e.text + (e.kind === "ambiguous" || e.kind === "missing" ? "" : e.t > r.audit_at ? "  (after audit_at)" : "") }));
+    })))));
+  if (c.ambiguous.length) box.appendChild(el("div", { class: "callout warn", text: "Ambiguous links are placed at reported_at only to show they exist; they carry no evidence time." }));
+  return box;
+}
+
+/* --- integrity (per case) --- */
+function viewIntegrity(c) {
+  var i = c.integrity, id = c.identity, box = el("div");
+  function section(title, rows, emptyText, render) {
+    return el("div", { class: "sec" }, el("h3", { text: title + (rows.length ? " (" + rows.length + ")" : "") }), rows.length ? rows.map(render) : emptyState(emptyText));
+  }
+  box.appendChild(el("div", { class: "sec" }, el("h3", { text: "Identity" }), !id ? emptyState("No identity resolution", "Not applicable requests are not resolved.") :
+    id.status === "resolved" ? el("div", { class: "callout ok", text: "Resolved to exactly one person (" + id.user_id + ") via the " + id.via + " e-mail." }) : el("div", { class: "callout bad", text: "Identity " + id.status + (id.candidates.length ? ": candidates " + id.candidates.join(", ") : "") + ". Nothing is merged or guessed." })));
+  box.appendChild(section("Conflicting ownership", i.conflicts.concat(i.contested), "No conflicting ownership recorded for this case's records.", function (x) {
+    return x.people ? el("div", { class: "callout bad" }, el("strong", { class: "mono", text: x.resource_id }), " is cited for more than one person: " + x.people.map(function (p) { return p.case_id + " (" + p.user_id + ", via " + p.via + ")"; }).join("; ") + ". At least one of them is wrong.")
+      : el("div", { class: "callout bad" }, el("strong", { class: "mono", text: x.resource_id }), " " + x.text); }));
+  box.appendChild(section("Missing identifiers", i.missing_identifiers.concat(i.uncertain_ocr.map(function (u) { return { resource_id: u.resource_id, evidence_id: u.evidence_id, why: "OCR identifier not used: " + u.value + " (confidence " + u.confidence + ")" }; })),
+    "Every eligible observation used here records an identifier, and no OCR identifier was flagged uncertain.", function (x) { return el("div", { class: "callout warn small" }, el("span", { class: "mono", text: x.resource_id + " \u00B7 " + x.evidence_id }), " " + x.why); }));
+  [["Retained records (kept on purpose by policy)", i.retained, "No policy-retained record (audit log or legal hold) is linked to this case."],
+   ["Data flows", i.flows, "No data flow is linked to this case."], ["Restore risks (backup archives)", i.restore, "No backup archive is linked to this case."], ["Tombstones", i.tombstones, "No account tombstone is linked to this case."]].forEach(function (t) {
+    box.appendChild(section(t[0], t[1], t[2], function (x) { return el("div", { class: "callout " + (x.verdict === "violation" ? "bad" : "ok") }, verdictBadge(x.verdict), " ", el("strong", { class: "mono", text: x.resource_id }), el("div", { class: "small", text: x.reason + (x.rule_id ? " (rule " + x.rule_id + ")" : "") + (x.evidence_id ? " \u00B7 cites " + x.evidence_id : "") })); })); });
+  if (c.ambiguous.length) box.appendChild(section("Ambiguous links left unattributed", c.ambiguous, "", function (a) { return el("div", { class: "callout warn small", text: a.text }); }));
+  return box;
+}
+
+/* --- reference (samples) --- */
+function viewReference(c) {
+  var ref = c.reference, box = el("div");
+  box.appendChild(el("div", { class: "callout warn", text: "Development sample: reference answers were available while building the engine, so agreement here is not an independent accuracy measure." }));
+  box.appendChild(el("div", { class: "grid cards" }, metric(ref.status_matches ? "match" : "differs", "status vs reference (" + ref.status + ")", null), metric(ref.matched.length, "steps matched", null), metric(ref.missing.length, "reference steps missing", null), metric(ref.extra.length, "steps not in reference", null)));
+  box.appendChild(el("div", { class: "sec" }, el("h3", { text: "Missing steps and what the recorded data says" }), ref.missing.length ? ref.missing.map(function (m) {
+    return el("div", { class: "callout warn" }, el("strong", { class: "mono", text: m.step.operation + " \u00B7 " + m.step.system_id + " \u00B7 " + m.step.resource_id }), el("ul", { class: "small" }, m.facts.map(function (f) { return el("li", { text: f }); })));
+  }) : emptyState("Every reference step is present in the engine's answer.")));
+  if (ref.extra.length) box.appendChild(el("div", { class: "sec" }, el("h3", { text: "Steps the reference does not contain" }), ref.extra.map(function (e) { return el("div", { class: "callout bad small mono", text: e.join(" \u00B7 ") }); })));
+  return box;
+}
+
+/* ---------- INTEGRITY (global) ---------- */
+function renderIntegrity() {
+  var s = ds().summary, oc = DATA.output_check, root = el("div");
+  root.appendChild(el("h2", { text: "Integrity overview" }));
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Submission file vs the engine" }),
+    !oc || !oc.present ? emptyState("output.csv not found", "Run python code/main.py to create it.") : oc.readable === false ? el("div", { class: "callout bad", text: "output.csv could not be read: " + oc.error }) :
+    oc.matches_all ? el("div", { class: "callout ok", text: "output.csv matches the engine's current decisions for all " + oc.rows + " rows (header " + (oc.header_ok ? "correct" : "INCORRECT") + ")." }) :
+    el("div", { class: "callout bad" }, el("strong", { text: "output.csv differs from the decisions the engine produces in THIS environment for " + oc.differing.length + " case(s): " }),
+      oc.differing.map(function (id) { return el("button", { class: "btn", style: "margin:2px", text: id, onclick: function () { go({ tab: "cases", ds: "evaluation", caseId: id, dtab: "lineage", resource: null }); } }); }),
+      el("p", { class: "small", text: "One documented cause of such a difference is OCR: screenshot readings can vary slightly between machines (Tesseract build), which changes which low-confidence identifiers are used (see Evaluation \u2192 limitations). The explorer cannot tell which cause applies here; regenerate with python code/main.py in the environment you submit from and compare." }))));
+  var ic = s.integrity_cases, label = { conflicts: "Conflicting ownership", contested: "Record cited for more than one person", missing_identifiers: "Observation without identifier", uncertain_ocr: "OCR-uncertain identifier",
+    retained: "Retained records (policy)", flows: "Data flows", restore: "Restore risks / backup archives", tombstones: "Tombstones" };
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Cases touched by each integrity category (" + ds().label + ")" }),
+    bars(Object.keys(label).map(function (k) { return { label: label[k], value: ic[k] || 0, cls: k === "conflicts" || k === "contested" ? "bad" : k === "retained" ? "ok" : "" }; }), { label: "Integrity categories" }),
+    el("p", { class: "small muted", text: "Unresolved identities in this dataset: " + s.unresolved_identities + (s.unresolved_identities ? "" : " (every request resolved to exactly one person).") })));
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Records cited for more than one person" }),
+    DATA.contested.length ? el("div", { class: "scroll" }, el("table", null, el("thead", null, el("tr", null, ["Record", "Cited for"].map(function (h) { return el("th", { scope: "col", text: h }); }))), el("tbody", null, DATA.contested.map(function (x) {
+      return el("tr", null, el("td", { class: "mono", text: x.resource_id }), el("td", null, x.people.map(function (p) { return el("span", { style: "margin-right:10px" }, p.case_id + " (" + p.user_id + ", via " + p.via + ")"); }))); })))) : emptyState("No record is cited for more than one person."),
+    el("p", { class: "small muted", text: "A record cannot belong to two customers, so each row is wrong for at least one of them. These come from weak time-window links and are disclosed rather than guessed away." })));
+  return root;
+}
+
+/* ---------- EVALUATION ---------- */
+function renderEvaluation() {
+  var ev = DATA.evaluation, m = ev.samples, root = el("div");
+  root.appendChild(el("h2", { text: "Evaluation overview" }));
+  root.appendChild(el("div", { class: "callout warn" }, el("strong", { text: "Read this first. " }), ev.labels.samples, " ", ev.labels.evaluation));
+  if (m) {
+    root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Public samples (32 cases): development-set metrics" }), el("div", { class: "grid cards" },
+      metric(pct(m.status_accuracy), "status accuracy (" + Object.keys(m.status_by_reference).map(function (k) { return k + " " + m.status_by_reference[k][0] + "/" + m.status_by_reference[k][1]; }).join(", ") + ")", null),
+      metric(pct(m.step_precision), "step precision (" + m.steps_extra + " extra)", null), metric(pct(m.step_recall), "step recall (" + m.steps_matched + " of " + (m.steps_matched + m.steps_missing) + ")", null),
+      metric(pct(m.step_f1), "step F1", null), metric(pct(m.evidence_accuracy_on_matched), "evidence id correct on matched steps", null), metric(pct(m.sequence_accuracy), "exact sequence (status + whole step list)", null)),
+      el("h3", { text: "Field-level accuracy on matched steps (percent)", style: "margin-top:14px" }), bars(Object.keys(m.field_accuracy_on_matched).map(function (k) { return { label: k, value: Math.round(m.field_accuracy_on_matched[k] * 1000) / 10, cls: m.field_accuracy_on_matched[k] < 1 ? "amb" : "ok" }; }), { label: "Field accuracy (percent)" }),
+      el("p", { class: "small muted", text: "step_no is lower only because a missing step shifts the numbering of the steps after it." })));
+    root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "The " + m.steps_missing + " reference steps the engine omits" }), ev.missing_breakdown.length ? el("div", { class: "scroll" }, el("table", null, el("thead", null, el("tr", null, ["Operation", "System", "Count"].map(function (h) { return el("th", { scope: "col", text: h }); }))),
+      el("tbody", null, ev.missing_breakdown.map(function (x) { return el("tr", null, el("td", { class: "mono", text: x.operation }), el("td", { class: "mono", text: x.system_id }), el("td", { text: x.count })); })))) : emptyState("No missing steps."),
+      el("p", { class: "small muted", text: "Open any sample case and its Reference check tab to see, per missing step, the recorded facts (no identifier in the evidence, evidence only after audit_at, or an ambiguous link left unattributed)." })));
+  } else root.appendChild(emptyState("No reference answers found", "sample_output.csv was not available when this file was built."));
+  var t = ev.tests;
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Regression tests" }), t ? el("div", null, el("div", { class: "grid cards" },
+      metric(num(t.tests_run), "tests run", null), metric(t.status, "result", null), metric(t.failures + " / " + t.errors, "failures / errors", null), metric(t.skipped, "skipped", null)),
+    el("p", { class: "small muted", text: "Recorded " + fmt(t.finished_at) + " on Python " + t.python + " (" + t.platform + "), " + t.duration_s + " s: " + t.command + ". This is a record of a run, not a live result." })) :
+    emptyState("No test run recorded", "Run: python code/build_explorer.py --run-tests (about 2-3 minutes) to record the real result here.")));
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Participant-written evaluation cases (conformance only: same author as the engine)" }), el("div", { class: "scroll" }, el("table", null,
+    el("thead", null, el("tr", null, ["Case", "Why it matters", "Expected", "Engine", "Pass"].map(function (h) { return el("th", { scope: "col", text: h }); }))),
+    el("tbody", null, ev.custom_cases.map(function (c) { return el("tr", null, el("td", { class: "mono", text: c.name }), el("td", { class: "small", text: c.why }), el("td", { text: c.expected_status }), el("td", { text: c.status + " (" + c.steps + " steps)" }), el("td", null, el("span", { class: "badge " + (c.ok ? "b-ok" : "b-bad"), text: c.ok ? "\u2713 yes" : "\u2717 NO" }))); }))))));
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Known limitations (verbatim from the evaluation report)" }), ev.limitations.length ? el("ul", null, ev.limitations.map(function (l) { return el("li", { class: "small", style: "margin-bottom:6px", text: l }); })) : emptyState("Evaluation report not found")));
+  var u = ev.usage; if (Object.keys(u).length) root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Model usage (from the usage report)" }), el("dl", { class: "kv small" }, Object.keys(u).map(function (k) { return [el("dt", { text: k }), el("dd", { text: u[k] })]; }))));
+  return root;
+}
+
+/* ---------- METHOD ---------- */
+function renderMethod() {
+  var root = el("div"), d = DATA.meta.link_method_definitions, labels = DATA.meta.eligibility_labels;
+  root.appendChild(el("h2", { text: "How it works, and how to read this explorer" }));
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "The pipeline (one engine, nothing re-decided here)" }), el("ol", null, [
+    "Applicability: does the request text authorize deletion? Access, correction, export, login and marketing-only requests are NOT_APPLICABLE with an empty step list.",
+    "Identity: the request e-mail (current or historical) must resolve to exactly one person; identifiers are taken as they stood at audit_at.",
+    "Eligibility: only evidence captured between requested_at and audit_at (inclusive) is used. Later files are never used, not even to learn that a record exists.",
+    "Linking: evidence is tied to the person only by recorded methods (below), never by name alone; look-alike e-mails and same-name customers are not merged.",
+    "Assessment: each linked record's state at audit_at is read from the most recent eligible file and compared with the deletion rules. Workflow claims are not state.",
+    "Decision: INCOMPLETE if any violation is supported (findings cite evidence; remediation and verification are future steps), COMPLETE only if required final states are proven, NOT_APPLICABLE otherwise."
+  ].map(function (t) { return el("li", { text: t }); }))));
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Link methods (definitions from the engine)" }), el("dl", { class: "kv" }, Object.keys(d).map(function (k) { return [el("dt", null, methodBadge(k)), el("dd", { text: d[k] })]; }))));
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "Evidence states and symbols" }), el("dl", { class: "kv" }, Object.keys(labels).map(function (k) { return [el("dt", null, eligBadge(k)), el("dd", { text: labels[k] })]; }),
+    el("dt", null, el("span", { class: "badge b-ambiguous", text: "Ambiguous link" })), el("dd", { text: "Several records matched a time window and none was attributed to the person." }),
+    el("dt", null, el("span", { class: "badge b-missing", text: "Missing evidence" })), el("dd", { text: "A linked record has no eligible observation at audit_at." }))));
+  root.appendChild(el("div", { class: "panel sec" }, el("h3", { text: "A 3-minute walkthrough for judges" }), el("ol", null, [
+    el("li", null, "Open ", el("a", { href: "#/evaluation", text: "Evaluation" }), ": note the labels. The 32 samples are a development set and the 518 cases have no ground truth."),
+    el("li", null, "Open ", el("a", { href: "#/cases", text: "Cases" }), " and click the card ", el("em", { text: "cases with evidence after audit_at" }), " to see only cases where later files were excluded."),
+    el("li", null, "Open a featured case (shown on the Cases page), then its ", el("em", { text: "Evidence lineage" }), " tab: identity \u2192 link method \u2192 record \u2192 observation \u2192 decision."),
+    el("li", null, "Open ", el("em", { text: "Timeline" }), ": solid markers are used evidence; diamonds right of the dashed audit_at line were captured too late and ignored."),
+    el("li", null, "Open ", el("a", { href: "#/integrity", text: "Integrity" }), ": the submission file is compared with the engine, and any record cited for two people is listed rather than hidden.")])));
+  return root;
+}
+
+/* ---------- main render ---------- */
+function render() {
+  renderChrome();
+  clear(app);
+  var views = { cases: renderCases, integrity: renderIntegrity, evaluation: renderEvaluation, method: renderMethod };
+  app.appendChild((views[S.tab] || renderCases)());
+  document.title = (S.tab === "cases" && S.caseId ? S.caseId + " \u00B7 " : "") + "Ghost Audit Evidence Explorer";
+}
+if (!DATA) {
+  app.appendChild(el("div", { class: "panel" }, emptyState("No data embedded", "This is the unfilled template. Run: python code/build_explorer.py")));
+} else {
+  readHash();
+  window.addEventListener("hashchange", function () { readHash(); render(); });
+  render();
+  window.__ghostExplorerReady = true;
+}
+})();
+</script>
+</body>
+</html>

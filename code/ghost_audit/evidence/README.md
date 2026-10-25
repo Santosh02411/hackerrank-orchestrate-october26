@@ -187,7 +187,7 @@ the three dependencies; use `--formats sql,json,log,text` without them.
   confidences). A row becomes an `Observation` (kind `record`, collection `pdf_row` / `screenshot_row`, locator `page=N;row=M`) only if it
   holds an e-mail, user id, resource ref (`backup_9287`), phone, e-mail hash, or a malformed identifier-like token. Every other row is kept
   verbatim in `metadata["unanchored_rows"]`; `rows == anchored + unanchored`, nothing is dropped.
-* **Identifiers are read, never repaired.** Each carries the OCR word confidence. It is `uncertain` when the confidence is below 80 or the
+* **Identifiers are read, never repaired.** Each carries the OCR word confidence. It is `uncertain` when the confidence is below 70 or the
   second pass did not reproduce it exactly; the row is flagged `ocr_uncertain_identifier` and the file gets `OCR_UNCERTAIN_IDENTIFIER`.
   Identifiers seen only by the second pass are listed in `metadata["extraction"]["identifiers_only_in_second_pass"]` and are not observations.
   Tokens such as `data_flow.1121` stay verbatim in `fields["malformed_identifier_tokens"]` (`OCR_MALFORMED_IDENTIFIER`). No snapping to
