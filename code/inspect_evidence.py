@@ -8,6 +8,8 @@ prints a report, and never writes to the dataset or produces predictions.
     python code/inspect_evidence.py --file evidence_05 --dump 5
     python code/inspect_evidence.py --json > coverage.json   # machine-readable
     python code/inspect_evidence.py --strict              # exit 1 on failed/partial files
+    python code/inspect_evidence.py --extended            # also parse logs, the TXT record, PDFs and screenshots (OCR)
+    python code/inspect_evidence.py --formats sql,json,log,text   # an explicit set (e.g. without OCR dependencies)
 
 Exit codes: 0 ok, 1 --strict violation, 2 bad usage / unreadable dataset directory.
 """
@@ -23,6 +25,7 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ghost_audit.evidence import (  # noqa: E402
+    FULL_FORMATS,
     IngestionResult,
     ParsedFile,
     ParseStatus,
@@ -65,7 +68,7 @@ def _row(cells: List[str], widths: List[int]) -> str:
     return "  ".join(str(c).ljust(w) for c, w in zip(cells, widths)).rstrip()
 
 
-def print_table(result: IngestionResult, show_warnings: int, dump: int) -> None:
+def print_table(result: IngestionResult, show_warnings: int, dump: int, extended: bool = False) -> None:
     header = ["file_id", "fmt", "layout", "status", "containers", "records", "unrec", "obs", "scopes", "warn"]
     rows = []
     for p in result.all_parsed():
@@ -82,7 +85,10 @@ def print_table(result: IngestionResult, show_warnings: int, dump: int) -> None:
     print()
     print("Files: %d | status: %s | format: %s" % (rep["files"], rep["by_status"], rep["by_format"]))
     print("Observations: %d | scopes: %d | records seen: %d | unrecognized: %d" % (rep["observations"], rep["scopes"], rep["records_seen"], rep["records_unrecognized"]))
-    print("(containers/records are 'recognized/seen'; DEFERRED files are logs, PDFs, images and the TXT record - later stages)")
+    if extended:
+        print("(containers/records are 'recognized/seen'; a log line / PDF line / OCR row is one record; DEFERRED files are formats not selected)")
+    else:
+        print("(containers/records are 'recognized/seen'; DEFERRED files are logs, PDFs, images and the TXT record - later stages)")
     print()
     print("Warning codes: %s" % (rep["warning_codes"] or "none"))
     shown = 0
@@ -105,6 +111,16 @@ def print_table(result: IngestionResult, show_warnings: int, dump: int) -> None:
                     [(i.kind, i.value, i.path) for i in obs.identifiers.items] or "none"))
 
 
+def _parse_formats(text: str) -> List[SourceFormat]:
+    names = [t.strip().lower() for t in text.split(",") if t.strip()]
+    allowed = {"sql": SourceFormat.SQL, "json": SourceFormat.JSON, "log": SourceFormat.LOG, "text": SourceFormat.TEXT,
+               "pdf": SourceFormat.PDF, "image": SourceFormat.IMAGE}
+    bad = [n for n in names if n not in allowed]
+    if bad or not names:
+        raise ValueError("--formats takes a comma-separated subset of %s (got %r)" % (",".join(allowed), text))
+    return [allowed[n] for n in names]
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
@@ -115,6 +131,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--no-activity", action="store_true", help="skip system_activity.csv")
     ap.add_argument("--show-warnings", type=int, default=20, help="print at most N individual warnings (default 20)")
     ap.add_argument("--dump", type=int, default=0, metavar="N", help="also print the first N observations of each file")
+    ap.add_argument("--extended", action="store_true", help="also parse logs, the TXT record, PDFs and screenshots (needs pypdf + Tesseract); default keeps Stage 1A behaviour")
+    ap.add_argument("--formats", help="comma-separated formats to parse, from sql,json,log,text,pdf,image (overrides --extended)")
     ap.add_argument("--json", action="store_true", help="print the coverage report as JSON")
     ap.add_argument("--strict", action="store_true", help="exit 1 if any parsed file is failed/partial or any record unrecognized")
     args = ap.parse_args(argv)
@@ -123,7 +141,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not (root / "evidence_files.csv").is_file():
         print("error: %s does not contain evidence_files.csv" % root, file=sys.stderr)
         return 2
-    result = ingest_dataset(root, include_activity=not args.no_activity, file_ids=args.files)
+    try:
+        formats = _parse_formats(args.formats) if args.formats else (FULL_FORMATS if args.extended else None)
+    except ValueError as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 2
+    result = ingest_dataset(root, include_activity=not args.no_activity, file_ids=args.files, formats=formats)
     if args.format:
         result.files = [p for p in result.files if p.source_format.value == args.format]
         if result.activity is not None and args.format != "csv":
@@ -138,7 +161,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(build_report(result), indent=2, sort_keys=True))
     else:
         print("Dataset: %s" % root)
-        print_table(result, args.show_warnings, args.dump)
+        print_table(result, args.show_warnings, args.dump, formats is not None)
 
     if args.strict:
         bad = [p for p in result.all_parsed() if p.status in (ParseStatus.FAILED, ParseStatus.PARTIAL) or p.coverage.records_unrecognized]

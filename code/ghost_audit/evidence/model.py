@@ -69,6 +69,9 @@ class ScopeKind(str, Enum):
     JSON_SNAPSHOT = "json_snapshot"
     JSON_SERVICE_SECTION = "json_service_section"
     JSON_CONTAINER = "json_container"
+    LOG_EXPORT = "log_export"          # one log file: declared vs parsed event counts, window, drops
+    TEXT_SNAPSHOT = "text_snapshot"    # the plain-text handover record
+    DOCUMENT = "document"              # one PDF or screenshot: extraction diagnostics, row counts
 
 
 class EffectiveTime(NamedTuple):
@@ -103,10 +106,12 @@ class Provenance:
 
 @dataclass(frozen=True)
 class IdentifierItem:
-    kind: str            # email | email_hash | phone | user_id | name | unclassified
+    kind: str            # email | email_hash | phone | user_id | resource_ref | name | unclassified
     value: str           # exactly as found (case preserved)
     path: str            # field path inside the record, e.g. "document.email"
     free_text: bool = False  # found by pattern-matching inside a free-text field
+    confidence: Optional[float] = None   # OCR word confidence (0-100) when the value was read from an image
+    uncertain: bool = False              # OCR value that is low-confidence or not reproduced by an independent pass
 
 
 @dataclass(frozen=True)
@@ -144,6 +149,10 @@ class Identifiers:
     @property
     def names(self) -> Tuple[str, ...]:
         return self._values("name")
+
+    @property
+    def resource_refs(self) -> Tuple[str, ...]:
+        return self._values("resource_ref")
 
     @property
     def unclassified(self) -> Tuple[Tuple[str, str], ...]:
@@ -213,7 +222,8 @@ class Observation:
             "file_content_time": self.provenance.file_content_time,
             "file_captured_at": self.provenance.file_captured_at,
             "effective_time": eff.value, "effective_time_source": eff.source.value,
-            "identifiers": [{"kind": i.kind, "value": i.value, "path": i.path, "free_text": i.free_text}
+            "identifiers": [dict({"kind": i.kind, "value": i.value, "path": i.path, "free_text": i.free_text},
+                                 **({"confidence": i.confidence, "uncertain": i.uncertain} if i.confidence is not None or i.uncertain else {}))
                             for i in self.identifiers.items],
             "redacted_paths": list(self.identifiers.redacted_paths),
             "flags": list(self.flags), "fields": dict(self.fields),
