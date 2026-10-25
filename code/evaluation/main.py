@@ -49,8 +49,10 @@ def build(dataset: Path, cache, corpus=None) -> dict:
     eng = AuditEngine(dataset, corpus=corpus)
     samples = rows(dataset / "sample_deletion_requests.csv")
     pred = {}
+    sample_decisions = []
     for r in samples:
         d = eng.decide(r)
+        sample_decisions.append(d)
         pred[r["case_id"]] = (d.status, d.steps)
     metrics = evaluate(pred, read_output(dataset / "sample_output.csv"))
     main_rows = rows(dataset / "deletion_requests.csv")
@@ -58,13 +60,28 @@ def build(dataset: Path, cache, corpus=None) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "output.csv"
         write_output(decisions, out)
-        rep = validate_csv(out, ValidatorConfig(case_id_order=SortStrategy.LEXICAL, resource_order=SortStrategy.LEXICAL,
+        rep = validate_csv(out, ValidatorConfig(case_id_order=SortStrategy.NATURAL, resource_order=SortStrategy.LEXICAL,
                                                 expected_case_ids={r["case_id"] for r in main_rows}, expected_row_count=len(main_rows)))
     methods = Counter()
     for d in decisions:
         for s in d.steps:
             methods["+".join(sorted(d.view.resources[s["resource_id"]].methods))] += 1
-    return {"metrics": metrics, "decisions": decisions, "validator": rep, "methods": methods, "custom": run_custom_cases(), "n_main": len(main_rows)}
+    return {"contested": contested_resources(sample_decisions + decisions), "metrics": metrics, "decisions": decisions, "validator": rep, "methods": methods, "custom": run_custom_cases(), "n_main": len(main_rows)}
+
+
+def contested_resources(decisions) -> dict:
+    """Resources that appear in the steps of more than one DIFFERENT person -> [(case_id, user_id, how it was linked), ...].
+
+    A record cannot belong to two customers, so every entry is wrong for at least one of them. This only measures; it changes no decision."""
+    owners: dict = {}
+    for d in decisions:
+        if not d.view or not d.resolution or not d.resolution.user_id:
+            continue
+        for rid in {s["resource_id"] for s in d.steps}:
+            lr = d.view.resources.get(rid)
+            if lr is not None:
+                owners.setdefault(rid, {}).setdefault(d.resolution.user_id, (d.case_id, d.resolution.user_id, "+".join(sorted(lr.methods))))
+    return {rid: sorted(v.values()) for rid, v in sorted(owners.items()) if len(v) > 1}
 
 
 def missing_breakdown(metrics) -> Counter:
@@ -115,7 +132,9 @@ def evaluation_report(r: dict) -> str:
           "| Statuses | %s |" % ", ".join("%s %d" % (k, v) for k, v in sorted(st.items())),
           "| Output validator (`validate_csv`, strict ordering) | %s: %s |" % ("PASS" if r["validator"].ok else "FAIL", r["validator"].summary()),
           "| Steps by how the resource was linked to the person | %s |" % ", ".join("%s: %d" % (k, v) for k, v in sorted(r["methods"].items())),
-          "| Cases with no provable finding or proof | %d |" % sum(1 for d in dec if d.status == "INCOMPLETE" and not d.steps), "",
+          "| Cases with no provable finding or proof | %d |" % sum(1 for d in dec if d.status == "INCOMPLETE" and not d.steps),
+          "| Resources cited for more than one person (integrity audit) | %d: %s |" % (len(r["contested"]), "; ".join(
+              "`%s` -> %s" % (rid, ", ".join("%s/%s via %s" % x for x in who)) for rid, who in r["contested"].items()) or "none"), "",
           "Checks run on the full output (see `code/tests/test_decision_engine.py`): every cited `evidence_id` is a manifest file captured inside `[requested_at, audit_at]`; "
           "future remediation/verification steps cite nothing; COMPLETE rows contain only cited verifications; removing every file and claim later than `audit_at` leaves every checked decision unchanged.", "",
           "## 4. Additional evaluation cases created by the participant", "",
@@ -134,14 +153,17 @@ def evaluation_report(r: dict) -> str:
           "| 6 | Seven screenshot/PDF cases ended with nothing provable. | Document rows count as **positive** evidence only; catalog aliases (`export_1842 (NST-...)`, `object_19 (file.pdf)`) tie documents to resources; an identity mismatch between a catalog link and a screenshot is flagged instead of silently dropping the case. |",
           "| 7 | Time-window attribution of claim-only resources: only 10 of 32 had a unique candidate and at +-1 h three unique candidates were wrong. | Attribution requires a unique candidate within +-2 h, not tied to anyone else; ambiguity is reported, never guessed. |",
           "| 8 | My own test infrastructure: a circular property test (it filtered evidence with the code under test) and fixtures with the wrong field order. | Property test now filters independently; sabotage runs confirm each test can fail. |",
-          "| 9 | Earlier stages: Python 3.8/3.10 `set_authorizer(None)` denial in the SQL reader (Stage 1A); a global Pillow limit leak and a circular OCR check (Stage 1C). | Fixed and covered by tests. |", "",
+          "| 9 | Integrity audit of the decisions: a few claim-only analytics profiles are attributed to two different people (table in section 3); one of each pair is certainly wrong. A time-pure \"rival\" guard that attributes a contested resource to nobody removed every duplicate but also dropped legitimate links and **regressed the labelled samples** (status 100% -> 96.9%, recall 86.0% -> 85.0%, case_04 flipped). It was rejected; the duplicates are reported here instead of being guessed away. | Measured and disclosed, no decision changed. |",
+          "| 10 | Earlier stages: Python 3.8/3.10 `set_authorizer(None)` denial in the SQL reader (Stage 1A); a global Pillow limit leak and a circular OCR check (Stage 1C). | Fixed and covered by tests. |", "",
           "## 6. Assumptions and limitations", "",
-          "* **Sort order.** The repository does not say whether `case_100` sorts before `case_33`. Output uses plain string order for rows and resources (`--case-order/--resource-order natural` switches); the validator accepts both.",
+          "* **Sort order.** Rows are in numeric `case_id` order (`case_33` before `case_100`), the order of `dataset/deletion_requests.csv`; `--case-order lexical` switches. Resources inside a phase/operation use plain string order (the repository does not say; `--resource-order natural` switches).",
           "* **Systems for unseen prefixes.** `account, search, support, analytics, export, backup, data_flow, audit_record, tombstone` are confirmed by the samples; `legal_hold -> legal_service`, `marketing -> marketing_platform`, `object -> object_storage` come from the evidence/catalog and are unverified.",
           "* **Resources that exist only in the activity stream** (`cache_*`, `email_delivery_*`) cannot be judged: activity rows are claims, not state.",
           "* **Retained audit records in later-captured files** are not used (audit-time rule), so some future `VERIFY_RECORD_PRESENT` steps are omitted.",
           "* **Screenshot inferences.** A backup archive listed in a restore console with no `blocked` marker is reported as a restore risk, labelled `INFERRED` in the assessment; the screenshot shows no restore flag.",
           "* **COMPLETE is declared when no violation is supported and at least one required final state is proven**; an unproven account (id not attributable) does not by itself block COMPLETE.",
+          "* **OCR build sensitivity.** The participant's own `output.csv` and a re-run in another environment differed in exactly one case (`case_45`): five `user_03` readings in a screenshot had confidence 80.25, only 0.25 above the old cutoff of 80, which is consistent with (not proof of) a slightly different Tesseract build reading them just under it and dropping five retained audit records. The cutoff is now 70 and an identifier must also be reproduced by an independent second pass; other builds can still change borderline readings, so `output.csv` should be produced by the final environment.",
+          "* **Weak links can be shared.** Claim-window attribution (a single claim candidate within +-2 h) is the weakest link and, as the integrity audit in section 3 shows, can name the same record for two people; the 15 account and 5 analytics sample steps that are still missing have records with no identifier at all (`lookup_key=null`, `profile: null`), so no identity link exists in eligible evidence and none is guessed.",
           "* **Names** are used only as corroboration inside documents; they never link evidence on their own (several customers share names).",
           "* **Not evaluated:** Windows/macOS runs, other Tesseract builds (OCR-derived details can differ), and anything about the hidden answers."]
     return "\n".join(L) + "\n"
