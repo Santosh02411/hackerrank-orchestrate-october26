@@ -16,8 +16,9 @@ def steps_json(steps: List[Dict[str, object]]) -> str:
     return json.dumps([{k: s[k] for k in STEP_KEYS} for s in steps], separators=(",", ":"), ensure_ascii=True)
 
 
-def write_output(decisions: Iterable[CaseDecision], path: Union[str, Path], case_order: SortStrategy = SortStrategy.LEXICAL) -> int:
-    strat = case_order if case_order in (SortStrategy.LEXICAL, SortStrategy.NATURAL) else SortStrategy.LEXICAL
+def write_output(decisions: Iterable[CaseDecision], path: Union[str, Path], case_order: SortStrategy = SortStrategy.NATURAL) -> int:
+    """Rows are in numeric case order (case_2 before case_10) by default: that is the order of dataset/deletion_requests.csv."""
+    strat = case_order if case_order in (SortStrategy.LEXICAL, SortStrategy.NATURAL) else SortStrategy.NATURAL
     rows = sorted(decisions, key=lambda d: sort_key(strat, d.case_id))
     with open(path, "w", encoding="utf-8", newline="") as h:          # UTF-8 without BOM, LF line endings
         w = csv.writer(h, lineterminator="\n")
