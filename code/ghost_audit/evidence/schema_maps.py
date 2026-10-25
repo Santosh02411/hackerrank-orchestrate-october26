@@ -197,7 +197,7 @@ LOG_EVENT_SPECS: Dict[str, LogEventSpec] = {s.event: s for s in (
     _fact("analytics_profile_read_completed", "ANALYTICS_PROFILE"),
     _fact("analytics_profile_read", "ANALYTICS_PROFILE", "direct_identifiers"),
     _fact("analytics_identity_scan", "ANALYTICS_PROFILE", "direct_identifiers"),
-    _fact("contact_lookup_completed", "ANALYTICS_PROFILE", "email_opt_in"),
+    _fact("contact_lookup_completed", "MARKETING_PROFILE", "email_opt_in"),
     _fact("support_ticket_read_completed", "SUPPORT_MESSAGE"),
     _fact("message_read", "SUPPORT_MESSAGE"),
     _fact("message_pii_scan", "SUPPORT_MESSAGE"),

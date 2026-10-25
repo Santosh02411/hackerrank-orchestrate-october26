@@ -1,3 +1,5 @@
+> Stage 2 (decision engine) is documented in `engine/README.md`. This file describes Stage 0 (the output contract and validator).
+
 # Stage 0 - output contract and validator
 
 Scope: the *shape* of `output.csv`. There is no evidence parsing, identity

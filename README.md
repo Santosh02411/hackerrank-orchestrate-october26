@@ -155,5 +155,37 @@ Before submitting, confirm that:
 - `code.zip` includes your runnable code, `README.md`, `code/evaluation/evaluation_report.md`, and `code/evaluation/usage_report.md`;
 - `log.txt` follows the `AGENTS.md` turn format and is uploaded to the `chat_transcript` slot; and
 - no API keys, credentials, real personal data, or sensitive configuration values are included.
-#   h a c k e r r a n k - o r c h e s t r a t e - o c t o b e r 2 6  
- 
+
+---
+
+## This submission: setup and run
+
+The agent is deterministic Python and uses **no model, API key or network access**. It reads `dataset/` and writes `output.csv` at the repository root.
+
+**Requirements** (tested on Python 3.8 - 3.12):
+
+```bash
+pip install pypdf Pillow
+# Tesseract OCR 5.x is needed to read the 11 screenshots (PDFs only need pypdf).
+#   Windows: installer from https://github.com/UB-Mannheim/tesseract/wiki, then add it to PATH
+#            or set TESSERACT_CMD="C:\Program Files\Tesseract-OCR\tesseract.exe"
+#   Linux:   apt install tesseract-ocr      macOS: brew install tesseract
+```
+
+If a tool is missing the affected files are listed on stderr and skipped (decisions that depend on them become less complete); nothing is guessed.
+
+**Run**
+
+```bash
+python code/main.py                                  # writes output.csv (518 rows) and validates it; exit 0 = valid
+python code/main.py --diagnostics diagnostics.jsonl  # also writes one JSON line per case: identity, links, assessments, notes
+python code/evaluation/main.py                       # recomputes evaluation/evaluation_report.md and usage_report.md
+python -m unittest discover -s code/tests -t code    # full test suite (about 2 minutes: it parses every PDF and runs OCR)
+python code/validate_output.py output.csv --requests dataset/deletion_requests.csv
+```
+
+`GHOST_FAST_TESTS=1` skips only the slow real-data tests. `python code/main.py --case-order natural --resource-order natural` switches the sort order (the repository does not say which is meant; the default is plain string order).
+
+**How it decides** (details in `code/ghost_audit/engine/README.md`): classify whether the text authorizes deletion -> resolve the e-mail (current or historical) to one `user_id` and its identifiers at `audit_at` -> link evidence by identifiers, traces, catalog links and documents (never merging look-alike or same-name customers) using only evidence captured between `requested_at` and `audit_at` -> read the state of every linked record (activity rows and `reported_status` are claims, not state) -> apply `deletion_rules.csv` -> emit findings, ordered remediation and verification, or proven verifications for COMPLETE.
+
+**Honest limits**: no accuracy can be claimed for the 518 requests (no answers are available); the 32 public samples were used during development. See `evaluation/evaluation_report.md`.
