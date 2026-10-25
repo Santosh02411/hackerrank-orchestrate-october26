@@ -160,3 +160,75 @@ def sql_file_layout(table_layouts: FrozenSet[str]) -> str:
     if "search_document_table" in table_layouts:
         return "sql:search_primary"
     return "sql:unknown"
+
+
+# --------------------------------------------------------------------------- #
+# Log events (Stage 1B)
+# --------------------------------------------------------------------------- #
+# Roles:
+#   fact        an event that reports a resource and (usually) its state/identifiers -> Observation
+#   start       "<x>_started": opens a lookup; its key fields become the trace context of the
+#               fact event that follows in the same trace (never used on its own as a result)
+#   ledger_row  `record_lookup`: same vocabulary as the flat JSON ledgers
+#   diagnostic  infrastructure chatter inside platform services; counted, no Observation
+#   meta        export_started / export_completed: completeness metadata -> SnapshotScope
+@dataclass(frozen=True)
+class LogEventSpec:
+    event: str
+    role: str
+    record_type: Optional[str] = None
+    state_field: Optional[str] = None   # the log's own state/flag field, kept verbatim (a string)
+
+
+def _fact(event: str, record_type: str, state_field: Optional[str] = None) -> LogEventSpec:
+    return LogEventSpec(event, "fact", record_type, state_field)
+
+
+LOG_EVENT_SPECS: Dict[str, LogEventSpec] = {s.event: s for s in (
+    _fact("profile_lookup_completed", "USER_PROFILE", "http_status"),
+    _fact("index_query_completed", "SEARCH_INDEX_ENTRY", "result"),
+    _fact("audit_record_read_completed", "SECURITY_AUDIT_LOG", "rows"),
+    _fact("connector_config_read_completed", "DATA_FLOW", "enabled"),
+    _fact("connector_config_loaded", "DATA_FLOW", "enabled"),
+    _fact("connector_heartbeat", "DATA_FLOW", "enabled"),
+    _fact("restore_policy_read_completed", "BACKUP_ARCHIVE", "restore_allowed"),
+    _fact("restore_candidate_evaluated", "BACKUP_ARCHIVE", "eligible"),
+    _fact("restore_authorization_completed", "BACKUP_ARCHIVE", "decision"),
+    _fact("analytics_profile_read_completed", "ANALYTICS_PROFILE"),
+    _fact("analytics_profile_read", "ANALYTICS_PROFILE", "direct_identifiers"),
+    _fact("analytics_identity_scan", "ANALYTICS_PROFILE", "direct_identifiers"),
+    _fact("contact_lookup_completed", "ANALYTICS_PROFILE", "email_opt_in"),
+    _fact("support_ticket_read_completed", "SUPPORT_MESSAGE"),
+    _fact("message_read", "SUPPORT_MESSAGE"),
+    _fact("message_pii_scan", "SUPPORT_MESSAGE"),
+    _fact("contact_query_completed", "SUPPORT_MESSAGE", "rows"),
+    _fact("deletion_marker_check", "SUPPORT_MESSAGE", "marker_found"),
+    _fact("attachment_pii_scan", "SUPPORT_ATTACHMENT"),
+    _fact("thumbnail_failed", "SUPPORT_ATTACHMENT"),
+    _fact("export_metadata_read_completed", "USER_EXPORT", "available"),
+    _fact("export_download_check_completed", "USER_EXPORT", "available"),
+    _fact("retained_order_loaded", "LEGAL_HOLD_RECORD", "access"),
+    LogEventSpec("record_lookup", "ledger_row"),
+    *(LogEventSpec(e, "start") for e in (
+        "profile_lookup_started", "index_query_started", "audit_record_query_started", "audit_record_read_started",
+        "connector_config_read_started", "analytics_profile_read_started", "analytics_profile_scan_started",
+        "support_ticket_read_started", "message_scan_started", "restore_policy_read_started",
+        "restore_policy_check_started", "export_download_check_started", "export_metadata_read_started",
+        "attachment_scan_started", "retained_order_query_started", "contact_query_started")),
+    *(LogEventSpec(e, "diagnostic") for e in (
+        "connection_acquired", "cache_lookup", "dependency_retry", "dependency_recovered",
+        "batch_started", "checkpoint_saved")),
+    LogEventSpec("export_started", "meta"),
+    LogEventSpec("export_completed", "meta"),
+)}
+
+# Services that only emit infrastructure chatter ("auxiliary events"). In the 11 logs that declare
+# `expected_source_events`, that number equals the count of events from every OTHER service.
+AUXILIARY_SERVICES = frozenset({
+    "http_client", "runtime_config", "thread_pool", "webhook_delivery", "dns_cache", "lambda_extension",
+    "secret_agent", "checkpoint_writer", "scheduler", "queue_consumer", "circuit_breaker", "feature_flags",
+    "cert_agent", "kernel_monitor", "systemd", "log_router", "readback_collector",
+})
+
+# Key names that carry no identity/state and are left out of a start event's trace context
+TRACE_CONTEXT_SKIP = frozenset({"logger", "instance", "pod", "region", "trace_id", "event", "attempt", "service"})

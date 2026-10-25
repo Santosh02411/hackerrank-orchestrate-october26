@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Sequence, Union
+from typing import Collection, Iterable, Iterator, List, Optional, Sequence, Union
 
 from .csv_ingest import parse_activity_file
 from .json_ingest import parse_json_file
+from .image_ingest import parse_image_file
+from .log_ingest import parse_log_file
+from .pdf_ingest import parse_pdf_file
 from .manifest import default_dataset_dir, load_manifest
 from .model import (
     EvidenceFileRef,
@@ -24,17 +27,27 @@ from .model import (
     SourceFormat,
 )
 from .sql_ingest import parse_sql_file
+from .text_ingest import parse_text_file
 
-HANDLED_FORMATS = (SourceFormat.SQL, SourceFormat.JSON)
+HANDLED_FORMATS = (SourceFormat.SQL, SourceFormat.JSON)          # Stage 1A: the default, unchanged
+EXTENDED_FORMATS = HANDLED_FORMATS + (SourceFormat.LOG, SourceFormat.TEXT)   # Stage 1B: opt-in via `formats=`
+FULL_FORMATS = EXTENDED_FORMATS + (SourceFormat.PDF, SourceFormat.IMAGE)      # Stage 1C: + PDFs and screenshots (needs pypdf, Tesseract)
 _STAGE_FOR_FORMAT = {SourceFormat.LOG: "log parsing", SourceFormat.PDF: "PDF/OCR", SourceFormat.IMAGE: "image/OCR",
                      SourceFormat.TEXT: "plain-text record parsing", SourceFormat.UNKNOWN: "an unknown format handler"}
 
 
-def parse_evidence_file(ref: EvidenceFileRef, dataset_dir: Union[str, Path]) -> ParsedFile:
-    if ref.source_format is SourceFormat.SQL:
-        return parse_sql_file(ref, dataset_dir)
-    if ref.source_format is SourceFormat.JSON:
-        return parse_json_file(ref, dataset_dir)
+_PARSERS = {SourceFormat.SQL: parse_sql_file, SourceFormat.JSON: parse_json_file,
+            SourceFormat.LOG: parse_log_file, SourceFormat.TEXT: parse_text_file,
+            SourceFormat.PDF: parse_pdf_file, SourceFormat.IMAGE: parse_image_file}
+
+
+def parse_evidence_file(ref: EvidenceFileRef, dataset_dir: Union[str, Path],
+                        formats: Optional[Collection[SourceFormat]] = None) -> ParsedFile:
+    """Parse one file. ``formats`` selects which formats are parsed (default: Stage 1A's SQL+JSON);
+    every other format is reported as ``DEFERRED`` exactly as before."""
+    enabled = HANDLED_FORMATS if formats is None else formats
+    if ref.source_format in enabled and ref.source_format in _PARSERS:
+        return _PARSERS[ref.source_format](ref, dataset_dir)
     parsed = ParsedFile(source=ref.file_path, source_format=ref.source_format, status=ParseStatus.DEFERRED, layout="deferred", ref=ref)
     parsed.warnings.append(ParseWarning(
         "FORMAT_DEFERRED", "%s evidence is not handled in Stage 1A (needs %s); no observations produced" % (ref.source_format.value, _STAGE_FOR_FORMAT.get(ref.source_format, "a later stage")),
@@ -73,8 +86,15 @@ def ingest_dataset(
     *,
     include_activity: bool = True,
     file_ids: Optional[Sequence[str]] = None,
+    formats: Optional[Collection[SourceFormat]] = None,
 ) -> IngestionResult:
-    """Parse every manifest file (and the activity CSV). Read-only and deterministic."""
+    """Parse every manifest file (and the activity CSV). Read-only and deterministic.
+
+    ``formats=None`` keeps the Stage 1A behaviour (SQL + JSON parsed; logs, TXT, PDFs and images
+    deferred). Pass ``EXTENDED_FORMATS`` to also parse logs and the TXT record (Stage 1B), or ``FULL_FORMATS``
+    to additionally read PDFs and screenshots (Stage 1C). A requested format whose dependency is missing is
+    reported as a FAILED file with a ``DEPENDENCY_MISSING`` warning, never silently skipped.
+    """
     root = Path(dataset_dir) if dataset_dir is not None else default_dataset_dir()
     refs, manifest_warnings = load_manifest(root)
     result = IngestionResult(dataset_dir=root, manifest_warnings=manifest_warnings)
@@ -82,7 +102,7 @@ def ingest_dataset(
     for ref in refs:
         if wanted is not None and ref.file_id not in wanted:
             continue
-        result.files.append(parse_evidence_file(ref, root))
+        result.files.append(parse_evidence_file(ref, root, formats))
     if include_activity and wanted is None:
         result.activity = parse_activity_file(root)
     return result

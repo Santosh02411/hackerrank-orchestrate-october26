@@ -73,3 +73,16 @@ def load_manifest(dataset_dir: Union[str, Path, None] = None) -> Tuple[List[Evid
                 if rel not in listed:
                     warnings.append(ParseWarning("MANIFEST_UNLISTED_FILE", "file %s exists on disk but is not in evidence_files.csv" % rel))
     return sorted(refs.values(), key=lambda r: _natural(r.file_id)), warnings
+
+
+def resolve_inside(dataset_dir: Union[str, Path], relative_path: str) -> Path:
+    """``dataset_dir / relative_path`` resolved, refusing anything that escapes ``dataset_dir``.
+
+    Guards against a manifest row such as ``../../secret.txt`` or an absolute path (symlinks are
+    resolved before the check). Raises ``ValueError``; callers report it as a failed file.
+    """
+    root = Path(dataset_dir).resolve()
+    target = (root / relative_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError("path %r resolves outside the dataset directory" % relative_path)
+    return target

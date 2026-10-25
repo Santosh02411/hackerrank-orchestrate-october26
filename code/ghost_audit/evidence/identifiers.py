@@ -20,6 +20,7 @@ _EMAIL_FULL = re.compile(EMAIL_RE.pattern)
 USER_ID_RE = re.compile(r"user_\d+")
 HASH_RE = re.compile(r"[0-9a-fA-F]{64}")
 PHONE_RE = re.compile(r"\+\d[\d\s().\-]{5,}\d")
+RESOURCE_REF_RE = re.compile(r"[a-z][a-z_]*_\d+")  # e.g. analytics_4800: a lookup BY resource, not by person
 REDACTION_RE = re.compile(r"\[?\s*redacted\s*\]?", re.IGNORECASE)
 
 # name -> expected kind
@@ -34,6 +35,8 @@ FIXED_KEYS: Dict[str, str] = {
 MIXED_KEYS = frozenset({
     "subject_reference", "subject_selector", "lookup_value", "lookup_key", "customer_reference",
     "uploaded_by", "query", "correlation_key",
+    # key names used by log events (Stage 1B)
+    "match_key", "subject_key", "subject_ref", "owner_key", "scan_key", "matched_value",
 })
 # free text: e-mail addresses / user IDs inside prose are extracted and marked free_text
 FREE_TEXT_KEYS = frozenset({"message_text", "message_excerpt", "details"})
@@ -50,6 +53,8 @@ def classify_value(value: str) -> Optional[str]:
         return "email_hash"
     if PHONE_RE.fullmatch(v):
         return "phone"
+    if RESOURCE_REF_RE.fullmatch(v):
+        return "resource_ref"
     return None
 
 
