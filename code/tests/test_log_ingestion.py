@@ -347,6 +347,10 @@ class TestRealLogs(unittest.TestCase):
             self.assertEqual((o.kind, o.record_type_source, o.state_field, o.state_value, o.system_id, o.resource_id),
                              (ObservationKind.LOOKUP_RESULT, "source", "result", o.fields["result"], o.fields["system"], o.fields["resource_id"]))
 
+    # Documented exception (Stage 2): a `contact_lookup_completed` row (an e-mail opt-in contact) is a MARKETING_PROFILE although the
+    # platform that hosts it numbers it `analytics_*`; the public sample answer for such a record is a whole-record deletion.
+    CROSS_PREFIX_TYPES = {("contact_lookup_completed", "MARKETING_PROFILE")}
+
     def test_record_types_and_resource_prefixes_agree_with_the_sql_json_evidence(self):
         with open(DATASET / "deletion_rules.csv", encoding="utf-8", newline="") as h:
             categories = {r["data_category"] for r in csv.DictReader(h)} | {"DATA_FLOW"}
@@ -360,6 +364,8 @@ class TestRealLogs(unittest.TestCase):
                 if o.record_type:
                     self.assertIn(o.record_type, categories)
                     prefix = re.sub(r"\d+$", "", o.resource_id)
+                    if (o.collection, o.record_type) in self.CROSS_PREFIX_TYPES:
+                        continue
                     self.assertIn(o.record_type, prefix_types.get(prefix, {o.record_type}), "%s %s" % (o.collection, o.resource_id))
 
     def test_no_log_observation_claims_a_state_it_did_not_read(self):

@@ -143,18 +143,9 @@ def make_pdf(pages: List[List[Tuple[str, ...]]]) -> bytes:
     return bytes(out)
 
 
-
 def find_font() -> Optional[str]:
-    for p in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        r"C:\Windows\Fonts\consola.ttf",
-        r"C:\Windows\Fonts\verdana.ttf",
-        r"C:\Windows\Fonts\tahoma.ttf",
-        r"C:\Windows\Fonts\arial.ttf",
-        r"C:\Windows\Fonts\segoeui.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/Library/Fonts/Arial.ttf",
-    ):
+    for p in ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:\\Windows\\Fonts\\arial.ttf", "C:\\Windows\\Fonts\\segoeui.ttf",
+              "/System/Library/Fonts/Supplemental/Arial.ttf", "/Library/Fonts/Arial.ttf"):
         if os.path.isfile(p):
             return p
     return None
